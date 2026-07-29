@@ -1,0 +1,1702 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard Realisasi Anggaran Investasi - BNI</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- React & ReactDOM -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <!-- Babel -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            bni: {
+              teal: '#006666',
+              'teal-dark': '#004d4d',
+              'teal-subtle': '#EAF4F4',
+              orange: '#F15A24',
+              'orange-dark': '#D14817',
+              'orange-subtle': '#FFF2EE',
+              bg: '#F3F5F9'
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap');
+    body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #F3F5F9; color: #1E293B; }
+    .custom-scrollbar::-webkit-scrollbar { width: 5px; height: 5px; }
+    .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+    .custom-scrollbar::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 4px; }
+
+    /* CSS ANIMASI RUNNING TEXT (MARQUEE) */
+    @keyframes marquee {
+      0% { transform: translateX(0%); }
+      100% { transform: translateX(-50%); }
+    }
+    .animate-marquee {
+      display: flex;
+      width: max-content;
+      animation: marquee 35s linear infinite;
+    }
+    .animate-marquee:hover {
+      animation-play-state: paused;
+    }
+  </style>
+</head>
+<body class="antialiased selection:bg-bni-teal selection:text-white">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useMemo, useRef } = React;
+
+    const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbxf89NXCAtrjZn3bFdhtO45DfikiDn8SiYavFBDerqyzIBeUt8yiKAxXoSwOu24N9z-mA/exec";
+
+    const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Ags', 'Sep', 'Okt', 'Nov', 'Des'];
+
+    const formatIDR = (val) => {
+      if (val === undefined || val === null || isNaN(val)) return 'Rp 0';
+      return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(val);
+    };
+
+    const formatNumberInput = (val) => {
+      if (!val && val !== 0) return '';
+      const cleanNum = String(val).replace(/\D/g, '');
+      if (!cleanNum) return '';
+      return new Intl.NumberFormat('id-ID').format(cleanNum);
+    };
+
+    const formatCompactIDR = (val) => {
+      if (!val) return 'Rp 0';
+      if (val >= 1e12) return `Rp ${(val / 1e12).toFixed(2)} T`;
+      if (val >= 1e9) return `Rp ${(val / 1e9).toFixed(1)} M`;
+      if (val >= 1e6) return `Rp ${(val / 1e6).toFixed(1)} Jt`;
+      return formatIDR(val);
+    };
+
+    const MiniSparkBar = ({ color = "teal" }) => {
+      const bars = [35, 55, 40, 70, 60, 95];
+      return (
+        <div className="flex items-end space-x-1.5 h-12">
+          {bars.map((height, idx) => (
+            <div 
+              key={idx} 
+              style={{ height: `${height}%` }} 
+              className={`w-2 rounded-t-sm transition-all duration-300 ${
+                idx === bars.length - 1 
+                  ? (color === "orange" ? "bg-bni-orange" : "bg-bni-teal") 
+                  : (color === "orange" ? "bg-orange-200" : "bg-teal-200")
+              }`}
+            ></div>
+          ))}
+        </div>
+      );
+    };
+
+    // KOMPONEN MIRROR BAR CHART HORIZONTAL (KIRI: ALOKASI RP, KANAN: % REALISASI)
+    const MirrorHorizontalBarChart = ({ labels, alokasiData, pctRealisasiData }) => {
+      const canvasLeftRef = useRef(null);
+      const canvasRightRef = useRef(null);
+      const chartLeftRef = useRef(null);
+      const chartRightRef = useRef(null);
+
+      useEffect(() => {
+        if (!canvasLeftRef.current || !canvasRightRef.current) return;
+
+        // 1. CHART ALOKASI (SISI KIRI - MIRROR MEMBALIK KE KIRI)
+        const ctxLeft = canvasLeftRef.current.getContext('2d');
+        if (chartLeftRef.current) chartLeftRef.current.destroy();
+
+        chartLeftRef.current = new Chart(ctxLeft, {
+          type: 'bar',
+          data: {
+            labels: labels,
+            datasets: [{
+              label: 'Total Alokasi',
+              data: alokasiData,
+              backgroundColor: '#006666',
+              borderRadius: 4
+            }]
+          },
+          options: {
+            indexAxis: 'y',
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: { display: false },
+              tooltip: { callbacks: { label: (ctx) => ` Alokasi: ${formatIDR(ctx.raw)}` } }
+            },
+            scales: {
+              x: {
+                reverse: true,
+                ticks: {
+                  callback: (val) => val >= 1e9 ? `${(val/1e9).toFixed(0)}M` : val >= 1e6 ? `${(val/1e6).toFixed(0)}Jt` : val,
+                  font: { size: 9 }
+                },
+                grid: { color: '#EDF2F7' }
+              },
+              y: {
+                position: 'right',
+                ticks: { font: { size: 10, weight: 'bold' } },
+                grid: { display: false }
+              }
+            }
+          }
+        });
+
+        // 2. CHART % REALISASI (SISI KANAN - MENGARAH KE KANAN DALAM PERCENTAGE)
+        const ctxRight = canvasRightRef.current.getContext('2d');
+        if (chartRightRef.current) chartRightRef.current.destroy();
+
+        chartRightRef.current = new Chart(ctxRight, {
+          type: 'bar',
+          data: {
+            labels: labels,
+            datasets: [{
+              label: '% Realisasi',
+              data: pctRealisasiData,
+              backgroundColor: '#F15A24',
+              borderRadius: 4
+            }]
+          },
+          options: {
+            indexAxis: 'y',
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: { display: false },
+              tooltip: { callbacks: { label: (ctx) => ` Penyerapan Realisasi: ${ctx.raw.toFixed(1)}%` } }
+            },
+            scales: {
+              x: {
+                ticks: {
+                  callback: (val) => `${val}%`,
+                  font: { size: 9 }
+                },
+                grid: { color: '#EDF2F7' }
+              },
+              y: {
+                position: 'left',
+                ticks: { font: { size: 10, weight: 'bold' } },
+                grid: { display: false }
+              }
+            }
+          }
+        });
+
+        return () => {
+          if (chartLeftRef.current) chartLeftRef.current.destroy();
+          if (chartRightRef.current) chartRightRef.current.destroy();
+        };
+      }, [labels, alokasiData, pctRealisasiData]);
+
+      return (
+        <div className="grid grid-cols-2 gap-2 h-72">
+          <div className="flex flex-col h-full">
+            <div className="flex items-center justify-between pb-1 border-b mb-2 border-slate-100">
+              <span className="text-xs font-extrabold text-bni-teal flex items-center space-x-1">
+                <i data-lucide="bar-chart-2" className="w-3.5 h-3.5"></i>
+                <span>Alokasi (Kolom K)</span>
+              </span>
+              <span className="text-[9px] font-bold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">Mirror Left</span>
+            </div>
+            <div className="flex-1 w-full relative">
+              <canvas ref={canvasLeftRef}></canvas>
+            </div>
+          </div>
+
+          <div className="flex flex-col h-full">
+            <div className="flex items-center justify-between pb-1 border-b mb-2 border-slate-100">
+              <span className="text-xs font-extrabold text-bni-orange flex items-center space-x-1">
+                <i data-lucide="percent" className="w-3.5 h-3.5"></i>
+                <span>% Realisasi (vs Alokasi)</span>
+              </span>
+              <span className="text-[9px] font-bold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">Mirror Right</span>
+            </div>
+            <div className="flex-1 w-full relative">
+              <canvas ref={canvasRightRef}></canvas>
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    // KOMPONEN CHART SETENGAH LINGKARAN (% REALISASI GAUGE) - DENGAN POSISI ALOKASI DI KIRI & REALISASI DI KANAN
+    const HalfGaugeChart = ({ percentage, totalRealisasi, totalAlokasi }) => {
+      const canvasRef = useRef(null);
+      const chartRef = useRef(null);
+
+      useEffect(() => {
+        if (!canvasRef.current) return;
+        const ctx = canvasRef.current.getContext('2d');
+        if (chartRef.current) chartRef.current.destroy();
+
+        const pctVal = Math.min(100, Math.max(0, Number(percentage) || 0));
+        const remainingVal = Math.max(0, 100 - pctVal);
+
+        chartRef.current = new Chart(ctx, {
+          type: 'doughnut',
+          data: {
+            labels: ['Realisasi (%)', 'Sisa Anggaran (%)'],
+            datasets: [{
+              data: [pctVal, remainingVal],
+              backgroundColor: ['#F15A24', '#E2E8F0'],
+              borderWidth: 0,
+              circumference: 180,
+              rotation: 270
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            cutout: '75%',
+            plugins: {
+              legend: { display: false },
+              tooltip: { callbacks: { label: (ctx) => ` ${ctx.label}: ${ctx.raw.toFixed(1)}%` } }
+            }
+          }
+        });
+
+        return () => { if (chartRef.current) chartRef.current.destroy(); };
+      }, [percentage]);
+
+      return (
+        <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm flex flex-col justify-between space-y-2">
+          <div className="flex items-center justify-between border-b pb-2 border-slate-100">
+            <h4 className="font-extrabold text-slate-800 text-sm flex items-center space-x-2">
+              <i data-lucide="pie-chart" className="w-4 h-4 text-bni-orange"></i>
+              <span>% Penyerapan Realisasi</span>
+            </h4>
+            <span className="text-[10px] font-bold text-bni-teal bg-bni-teal-subtle px-2 py-0.5 rounded-full">KPI Gauge</span>
+          </div>
+
+          <div className="relative h-48 w-full flex items-center justify-center">
+            <canvas ref={canvasRef}></canvas>
+            
+            <div className="absolute bottom-6 flex flex-col items-center justify-center text-center">
+              <span className="text-3xl font-black text-slate-800 tracking-tight">{percentage}%</span>
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total Penyerapan</span>
+            </div>
+          </div>
+
+          {/* POSISI PENEMPATAN SWITCH: ALOKASI EFS (KIRI) | REALISASI (KANAN) */}
+          <div className="grid grid-cols-2 gap-2 text-center border-t pt-2.5 border-slate-100">
+            <div className="bg-slate-50 p-2 rounded-xl border border-slate-100">
+              <span className="text-[9px] font-bold text-slate-400 uppercase block">Alokasi EFS</span>
+              <span className="font-black text-bni-teal text-xs">{formatCompactIDR(totalAlokasi)}</span>
+            </div>
+            <div className="bg-slate-50 p-2 rounded-xl border border-slate-100">
+              <span className="text-[9px] font-bold text-slate-400 uppercase block">Realisasi</span>
+              <span className="font-black text-bni-orange text-xs">{formatCompactIDR(totalRealisasi)}</span>
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    function App() {
+      const [rawData, setRawData] = useState([]);
+      const [detailNonOtomasiData, setDetailNonOtomasiData] = useState([]);
+      const [loading, setLoading] = useState(true);
+      const [saving, setSaving] = useState(false);
+      
+      // HEADER GLOBAL FILTERS
+      const [selectedGroup, setSelectedGroup] = useState('ALL');
+      const [selectedWilayah, setSelectedWilayah] = useState('ALL');
+      const [selectedUnit, setSelectedUnit] = useState('ALL');
+
+      // TABEL SPECIFIC FILTERS
+      const [tableSearchTerm, setTableSearchTerm] = useState('');
+      const [tableWilayahFilter, setTableWilayahFilter] = useState('ALL');
+      const [tableKategoriFilter, setTableKategoriFilter] = useState('ALL');
+      const [tableStatusProjFilter, setTableStatusProjFilter] = useState('ALL');
+      const [tableStatusEnpFilter, setTableStatusEnpFilter] = useState('ALL');
+      
+      // NAVIGATION TAB
+      const [activeTab, setActiveTab] = useState('overview'); 
+      const [projectsMenuOpen, setProjectsMenuOpen] = useState(true);
+
+      // MODAL DETAIL PROJECT & INPUT REALISASI
+      const [selectedProjectForModal, setSelectedProjectForModal] = useState(null);
+      const [realisasiInputs, setRealisasiInputs] = useState({});
+
+      // PAGINASI STATE
+      const [currentPage, setCurrentPage] = useState(1);
+      const [itemsPerPage, setItemsPerPage] = useState(10);
+
+      useEffect(() => {
+        loadData();
+      }, []);
+
+      useEffect(() => {
+        if (window.lucide) {
+          window.lucide.createIcons();
+        }
+      }, [activeTab, currentPage, itemsPerPage, loading, rawData, selectedProjectForModal]);
+
+      useEffect(() => {
+        setCurrentPage(1);
+      }, [selectedGroup, selectedWilayah, selectedUnit, activeTab, itemsPerPage, tableSearchTerm, tableWilayahFilter, tableKategoriFilter, tableStatusProjFilter, tableStatusEnpFilter]);
+
+      const loadData = () => {
+        setLoading(true);
+        const handleSuccess = (res) => {
+          const parsed = typeof res === 'string' ? JSON.parse(res) : res;
+          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+            setRawData(parsed.overview || []);
+            setDetailNonOtomasiData(parsed.detailNonOtomasi || []);
+          } else {
+            setRawData(Array.isArray(parsed) ? parsed : []);
+            setDetailNonOtomasiData([]);
+          }
+          setLoading(false);
+        };
+
+        if (typeof google !== 'undefined' && google.script && google.script.run) {
+          google.script.run
+            .withSuccessHandler(handleSuccess)
+            .withFailureHandler(() => setLoading(false))
+            .getDataFromSheets();
+        } else {
+          fetch(`${WEB_APP_URL}?action=getData`)
+            .then(res => res.json())
+            .then(handleSuccess)
+            .catch((err) => {
+              console.error("Gagal memuat data:", err);
+              setLoading(false);
+            });
+        }
+      };
+
+      const handleOpenDetailModal = (project) => {
+        setSelectedProjectForModal(project);
+        const initialInputs = {};
+        MONTHS.forEach(m => {
+          const key = m.toLowerCase();
+          const existingValue = project[key] || 0;
+          initialInputs[key] = formatNumberInput(existingValue);
+        });
+        setRealisasiInputs(initialInputs);
+      };
+
+      const handleRealisasiInputChange = (monthKey, rawValue) => {
+        const formatted = formatNumberInput(rawValue);
+        setRealisasiInputs(prev => ({
+          ...prev,
+          [monthKey]: formatted
+        }));
+      };
+
+      const handleSaveRealisasi = () => {
+        if (!selectedProjectForModal) return;
+        setSaving(true);
+
+        const rowId = selectedProjectForModal.rowId;
+        const parsedInputs = {};
+        MONTHS.forEach(m => {
+          const key = m.toLowerCase();
+          const raw = realisasiInputs[key] || '0';
+          parsedInputs[key] = Number(String(raw).replace(/\D/g, '')) || 0;
+        });
+
+        const onSaveSuccess = (res) => {
+          setSaving(false);
+          let response = res;
+          if (typeof res === 'string') {
+            try { response = JSON.parse(res); } catch(e) {}
+          }
+          
+          if (response && response.success) {
+            alert(response.message || "Realisasi berhasil disimpan!");
+            
+            const updateState = (dataArr) => dataArr.map(item => {
+              if (item.rowId === rowId) {
+                return { ...item, ...parsedInputs };
+              }
+              return item;
+            });
+
+            setRawData(prev => updateState(prev));
+            setDetailNonOtomasiData(prev => updateState(prev));
+            setSelectedProjectForModal(null);
+          } else {
+            alert("Gagal menyimpan: " + (response ? response.message : "Error terjadi."));
+          }
+        };
+
+        if (typeof google !== 'undefined' && google.script && google.script.run) {
+          google.script.run
+            .withSuccessHandler(onSaveSuccess)
+            .withFailureHandler((err) => {
+              setSaving(false);
+              alert("Gagal terhubung ke Server: " + err.message);
+            })
+            .saveRealisasiData(rowId, parsedInputs);
+        } else {
+          fetch(WEB_APP_URL, {
+            method: 'POST',
+            mode: 'no-cors',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'saveData',
+              rowId: rowId,
+              monthlyInputs: parsedInputs
+            })
+          })
+          .then(() => {
+            onSaveSuccess({ 
+              success: true, 
+              message: "Data realisasi berhasil dikirim!" 
+            });
+          })
+          .catch((err) => {
+            setSaving(false);
+            alert("Gagal mengirim data: " + err.toString());
+          });
+        }
+      };
+
+      const activeSourceData = useMemo(() => {
+        if (activeTab === 'Perabotan Non Otomasi') {
+          return detailNonOtomasiData;
+        }
+        return rawData;
+      }, [activeTab, rawData, detailNonOtomasiData]);
+
+      const wilayahList = useMemo(() => {
+        const source = selectedGroup === 'ALL' 
+          ? activeSourceData 
+          : activeSourceData.filter(i => i.typeGroup === selectedGroup);
+        return Array.from(new Set(source.map(item => item.wilayah))).filter(Boolean).sort();
+      }, [activeSourceData, selectedGroup]);
+
+      const unitList = useMemo(() => {
+        let source = activeSourceData;
+        if (selectedGroup !== 'ALL') source = source.filter(i => i.typeGroup === selectedGroup);
+        if (selectedWilayah !== 'ALL') source = source.filter(i => i.wilayah === selectedWilayah);
+
+        const setUnits = new Set();
+        source.forEach(row => {
+          const entit = (row.entitas || '').trim();
+          let opUnit = (row.operatingUnit || '').trim().replace(/\s*-\s*/g, ' ');
+          if (entit && opUnit) {
+            setUnits.add(`[${entit}] ${opUnit}`);
+          } else if (opUnit) {
+            setUnits.add(opUnit);
+          }
+        });
+        return Array.from(setUnits).sort();
+      }, [activeSourceData, selectedGroup, selectedWilayah]);
+
+      const kategoriList = useMemo(() => {
+        return ["Bangunan Gedung", "Tanah", "Perabotan Otomasi", "Perabotan Non Otomasi", "Kendaraan"];
+      }, []);
+
+      const statusEnpList = useMemo(() => {
+        const setEnp = new Set(rawData.map(i => i.statusEnp).filter(Boolean));
+        return Array.from(setEnp).sort();
+      }, [rawData]);
+
+      const filteredData = useMemo(() => {
+        return activeSourceData.filter(item => {
+          const matchGroup = selectedGroup === 'ALL' || item.typeGroup === selectedGroup;
+          const matchWilayah = selectedWilayah === 'ALL' || item.wilayah === selectedWilayah;
+          
+          let matchKategori = true;
+          if (activeTab !== 'overview' && activeTab !== 'Perabotan Non Otomasi') {
+            let cat = item.kategori || '';
+            if (activeTab === 'Bangunan Gedung') matchKategori = cat.toLowerCase().includes('bangunan');
+            else if (activeTab === 'Tanah') matchKategori = cat.toLowerCase().includes('tanah');
+            else if (activeTab === 'Perabotan Otomasi') matchKategori = cat.toLowerCase().includes('otomasi') && !cat.toLowerCase().includes('non');
+            else if (activeTab === 'Kendaraan') matchKategori = cat.toLowerCase().includes('kendaraan');
+          }
+
+          let matchUnit = true;
+          if (selectedUnit !== 'ALL') {
+            const entit = (item.entitas || '').trim();
+            let opUnit = (item.operatingUnit || '').trim().replace(/\s*-\s*/g, ' ');
+            const formatted = (entit && opUnit) ? `[${entit}] ${opUnit}` : opUnit;
+            matchUnit = formatted === selectedUnit;
+          }
+
+          return matchGroup && matchWilayah && matchKategori && matchUnit;
+        });
+      }, [activeSourceData, selectedGroup, selectedWilayah, selectedUnit, activeTab]);
+
+      const stats = useMemo(() => {
+        let sumAlokasiAwal = 0;
+        let sumAlokasiRevisiRbb = 0;
+        let sumAlokasiEfs = 0;
+
+        let totalRealisasi = 0;
+        let totalProject = 0;
+        let totalAktif = 0;
+        let totalNonAktif = 0;
+
+        const monthlyData = {};
+        MONTHS.forEach(m => monthlyData[m.toLowerCase()] = 0);
+
+        filteredData.forEach(row => {
+          sumAlokasiAwal += Number(row.alokasiAwal) || 0;
+          sumAlokasiRevisiRbb += Number(row.alokasiRevisiRbb) || 0;
+          sumAlokasiEfs += Number(row.alokasiEfs) || 0;
+
+          let rowRealisasi = 0;
+          MONTHS.forEach(m => {
+            const val = Number(row[m.toLowerCase()]) || 0;
+            rowRealisasi += val;
+            monthlyData[m.toLowerCase()] += val;
+          });
+
+          totalRealisasi += rowRealisasi;
+          totalProject += 1;
+
+          if (String(row.statusProject).toUpperCase() === 'NON AKTIF' || String(row.statusProject).toUpperCase() === 'DROPPED') {
+            totalNonAktif += 1;
+          } else {
+            totalAktif += 1;
+          }
+        });
+
+        const sisaBudget = Math.max(0, sumAlokasiEfs - totalRealisasi);
+        const pctTotal = sumAlokasiEfs > 0 ? ((totalRealisasi / sumAlokasiEfs) * 100).toFixed(1) : 0;
+
+        return { 
+          sumAlokasiAwal, 
+          sumAlokasiRevisiRbb, 
+          sumAlokasiEfs, 
+          totalRealisasi, 
+          sisaBudget, 
+          pctTotal, 
+          totalProject, 
+          totalAktif, 
+          totalNonAktif, 
+          monthlyData 
+        };
+      }, [filteredData]);
+
+      const categorySummaryBoxes = useMemo(() => {
+        const targetCats = ["Bangunan Gedung", "Tanah", "Perabotan Otomasi", "Perabotan Non Otomasi", "Kendaraan"];
+        const summary = {};
+
+        targetCats.forEach(c => {
+          summary[c] = { alokasi: 0, realisasi: 0, totalProject: 0, aktif: 0, nonAktif: 0 };
+        });
+
+        rawData.forEach(row => {
+          let cat = row.kategori || '';
+          let catKey = "Lainnya";
+
+          if (cat.toLowerCase().includes('bangunan')) catKey = "Bangunan Gedung";
+          else if (cat.toLowerCase().includes('tanah')) catKey = "Tanah";
+          else if (cat.toLowerCase().includes('otomasi') && !cat.toLowerCase().includes('non')) catKey = "Perabotan Otomasi";
+          else if (cat.toLowerCase().includes('perabotan')) catKey = "Perabotan Non Otomasi";
+          else if (cat.toLowerCase().includes('kendaraan')) catKey = "Kendaraan";
+
+          if (summary[catKey]) {
+            const pagu = Number(row.alokasiEfs) || 0; 
+            let rowReal = 0;
+            MONTHS.forEach(m => { rowReal += Number(row[m.toLowerCase()]) || 0; });
+
+            summary[catKey].alokasi += pagu;
+            summary[catKey].realisasi += rowReal;
+            summary[catKey].totalProject += 1;
+            
+            if (String(row.statusProject).toUpperCase() === 'NON AKTIF' || String(row.statusProject).toUpperCase() === 'DROPPED') {
+              summary[catKey].nonAktif += 1;
+            } else {
+              summary[catKey].aktif += 1;
+            }
+          }
+        });
+
+        return summary;
+      }, [rawData]);
+
+      // KALKULASI DATA MIRROR CHART
+      const mirrorChartData = useMemo(() => {
+        const mapWilayah = {};
+
+        rawData.forEach(row => {
+          const w = row.wilayah || 'Lainnya';
+          if (!mapWilayah[w]) mapWilayah[w] = { alokasi: 0, realisasi: 0, alokasiEfs: 0 };
+
+          const paguAwal = Number(row.alokasiAwal) || 0;
+          const paguEfs = Number(row.alokasiEfs) || 0;
+          let rowReal = 0;
+          MONTHS.forEach(m => { rowReal += Number(row[m.toLowerCase()]) || 0; });
+
+          mapWilayah[w].alokasi += paguAwal;
+          mapWilayah[w].alokasiEfs += paguEfs;
+          mapWilayah[w].realisasi += rowReal;
+        });
+
+        const listSorted = Object.keys(mapWilayah)
+          .map(w => {
+            const aloAwal = mapWilayah[w].alokasi;
+            const aloEfs = mapWilayah[w].alokasiEfs;
+            const rea = mapWilayah[w].realisasi;
+            const pct = aloEfs > 0 ? (rea / aloEfs) * 100 : 0; 
+            return { name: w, alokasi: aloAwal, pctRealisasi: pct };
+          })
+          .sort((a, b) => b.alokasi - a.alokasi);
+
+        return {
+          labels: listSorted.map(item => item.name),
+          alokasi: listSorted.map(item => item.alokasi),
+          pctRealisasi: listSorted.map(item => item.pctRealisasi)
+        };
+      }, [rawData]);
+
+      // LOGIKA TOP 5 & BOTTOM 5 PROJECTS UNTUK RUNNING TEXT
+      const { top5Projects, bottom5Projects } = useMemo(() => {
+        if (!rawData || rawData.length === 0) return { top5Projects: [], bottom5Projects: [] };
+
+        const mappedProjects = rawData.map(row => {
+          const aloEfs = Number(row.alokasiEfs) || 0;
+          let totalReal = 0;
+          MONTHS.forEach(m => { totalReal += Number(row[m.toLowerCase()]) || 0; });
+          
+          const pct = aloEfs > 0 ? (totalReal / aloEfs) * 100 : 0;
+          return {
+            ...row,
+            totalReal,
+            aloEfs,
+            pctRealisasi: pct
+          };
+        });
+
+        const sortedTop = [...mappedProjects].sort((a, b) => {
+          if (b.pctRealisasi !== a.pctRealisasi) {
+            return b.pctRealisasi - a.pctRealisasi;
+          }
+          return b.aloEfs - a.aloEfs;
+        });
+        const top5 = sortedTop.slice(0, 5);
+
+        const sortedBottom = [...mappedProjects].sort((a, b) => {
+          if (a.pctRealisasi !== b.pctRealisasi) {
+            return a.pctRealisasi - b.pctRealisasi;
+          }
+          return b.aloEfs - a.aloEfs;
+        });
+        const bottom5 = sortedBottom.slice(0, 5);
+
+        return { top5Projects: top5, bottom5Projects: bottom5 };
+      }, [rawData]);
+
+      // HASIL PENYARINGAN KHUSUS TABEL
+      const tableRows = useMemo(() => {
+        return filteredData.filter(row => {
+          if (tableSearchTerm) {
+            const term = tableSearchTerm.toLowerCase();
+            const matchName = (row.namaProject || '').toLowerCase().includes(term);
+            const matchNum = (row.projectNumber || '').toLowerCase().includes(term);
+            if (!matchName && !matchNum) return false;
+          }
+
+          if (tableWilayahFilter !== 'ALL') {
+            if ((row.wilayah || '') !== tableWilayahFilter) return false;
+          }
+
+          if (tableKategoriFilter !== 'ALL') {
+            let cat = (row.kategori || '').toLowerCase();
+            if (tableKategoriFilter === 'Bangunan Gedung' && !cat.includes('bangunan')) return false;
+            if (tableKategoriFilter === 'Tanah' && !cat.includes('tanah')) return false;
+            if (tableKategoriFilter === 'Perabotan Otomasi' && (!cat.includes('otomasi') || cat.includes('non'))) return false;
+            if (tableKategoriFilter === 'Perabotan Non Otomasi' && !cat.includes('non')) return false;
+            if (tableKategoriFilter === 'Kendaraan' && !cat.includes('kendaraan')) return false;
+          }
+
+          if (tableStatusProjFilter !== 'ALL') {
+            const stProj = (row.statusProject || '').toUpperCase();
+            if (tableStatusProjFilter === 'AKTIF' && (stProj === 'NON AKTIF' || stProj === 'DROPPED')) return false;
+            if (tableStatusProjFilter === 'NON_AKTIF' && (stProj !== 'NON AKTIF' && stProj !== 'DROPPED')) return false;
+          }
+
+          if (tableStatusEnpFilter !== 'ALL') {
+            if ((row.statusEnp || '').toUpperCase() !== tableStatusEnpFilter.toUpperCase()) return false;
+          }
+
+          return true;
+        });
+      }, [filteredData, tableSearchTerm, tableWilayahFilter, tableKategoriFilter, tableStatusProjFilter, tableStatusEnpFilter]);
+
+      const resetTableFilters = () => {
+        setTableSearchTerm('');
+        setTableWilayahFilter('ALL');
+        setTableKategoriFilter('ALL');
+        setTableStatusProjFilter('ALL');
+        setTableStatusEnpFilter('ALL');
+      };
+
+      const totalPages = Math.max(1, Math.ceil(tableRows.length / itemsPerPage));
+      
+      const currentTableData = useMemo(() => {
+        const startIdx = (currentPage - 1) * itemsPerPage;
+        return tableRows.slice(startIdx, startIdx + itemsPerPage);
+      }, [tableRows, currentPage, itemsPerPage]);
+
+      const pageNumbers = useMemo(() => {
+        const pages = [];
+        if (totalPages <= 7) {
+          for (let i = 1; i <= totalPages; i++) pages.push(i);
+        } else {
+          if (currentPage <= 4) {
+            pages.push(1, 2, 3, 4, 5, '...', totalPages);
+          } else if (currentPage >= totalPages - 3) {
+            pages.push(1, '...', totalPages - 4, totalPages - 3, totalPages - 2, totalPages - 1, totalPages);
+          } else {
+            pages.push(1, '...', currentPage - 1, currentPage, currentPage + 1, '...', totalPages);
+          }
+        }
+        return pages;
+      }, [currentPage, totalPages]);
+
+      const totalColumns = activeTab === 'Perabotan Non Otomasi' ? 11 : 10;
+
+      return (
+        <div className="min-h-screen flex bg-[#F3F5F9] relative pb-16">
+          
+          {/* 1. LEFT SIDEBAR NAVIGATION */}
+          <aside className="w-64 bg-white border-r border-slate-200/80 flex flex-col justify-between p-5 hidden lg:flex shrink-0">
+            <div>
+              <div className="flex items-center space-x-3 px-2 mb-8">
+                <div className="bg-bni-orange text-white font-black px-2.5 py-1 rounded-lg text-lg tracking-wider shadow-sm">
+                  BNI
+                </div>
+                <div>
+                  <h1 className="font-bold text-slate-800 text-sm leading-none">PM-CAPEX</h1>
+                  <span className="text-[10px] text-slate-400 font-medium">CAPEX Analytics 2026</span>
+                </div>
+              </div>
+
+              <div className="space-y-6">
+                <div>
+                  <p className="px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2">General</p>
+                  <nav className="space-y-1">
+                    <button 
+                      onClick={() => setActiveTab('overview')}
+                      className={`w-full flex items-center space-x-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all ${
+                        activeTab === 'overview' 
+                          ? 'bg-bni-teal text-white shadow-sm' 
+                          : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800'
+                      }`}
+                    >
+                      <i data-lucide="layout-dashboard" className="w-4 h-4"></i>
+                      <span>Overview</span>
+                    </button>
+
+                    <div className="space-y-1">
+                      <button 
+                        onClick={() => setProjectsMenuOpen(!projectsMenuOpen)}
+                        className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-all ${
+                          activeTab !== 'overview' 
+                            ? 'bg-bni-teal/10 text-bni-teal font-bold' 
+                            : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800'
+                        }`}
+                      >
+                        <div className="flex items-center space-x-3">
+                          <i data-lucide="folder-kanban" className="w-4 h-4"></i>
+                          <span>Projects</span>
+                        </div>
+                        <i data-lucide={projectsMenuOpen ? "chevron-down" : "chevron-right"} className="w-3.5 h-3.5 text-slate-400"></i>
+                      </button>
+
+                      {projectsMenuOpen && (
+                        <div className="pl-6 space-y-1 pt-1 border-l-2 border-slate-100 ml-4">
+                          {kategoriList.map(cat => (
+                            <button
+                              key={cat}
+                              onClick={() => setActiveTab(cat)}
+                              className={`w-full text-left px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-all flex items-center space-x-2 ${
+                                activeTab === cat
+                                  ? 'bg-bni-orange text-white font-bold shadow-sm'
+                                  : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800'
+                              }`}
+                            >
+                              <span className={`w-1.5 h-1.5 rounded-full ${activeTab === cat ? 'bg-white' : 'bg-slate-300'}`}></span>
+                              <span className="truncate">{cat}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </nav>
+                </div>
+              </div>
+            </div>
+
+            <div className="pt-4 border-t border-slate-100 flex items-center space-x-3 px-2">
+              <div className="w-9 h-9 rounded-full bg-bni-teal-subtle text-bni-teal font-bold flex items-center justify-center text-xs">
+                CU
+              </div>
+              <div className="overflow-hidden">
+                <p className="text-xs font-bold text-slate-800 truncate">CapEx User</p>
+                <p className="text-[10px] text-slate-400 truncate">user@bni.co.id</p>
+              </div>
+            </div>
+          </aside>
+
+          {/* 2. MAIN DASHBOARD CONTENT */}
+          <main className="flex-1 flex flex-col min-w-0 overflow-y-auto">
+            
+            {/* TOP BAR USER HEADER */}
+            <header className="bg-white/80 backdrop-blur-md sticky top-0 z-40 border-b border-slate-200/80 px-6 py-3.5 flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className="text-base font-extrabold text-slate-800">CAPEX Divisi NSD & Wilayah-Cabang</h2>
+                <p className="text-xs text-slate-400">Monitoring & analisis realisasi anggaran proyek BNI</p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="flex items-center bg-slate-100 border border-slate-200/80 rounded-xl px-2 py-1">
+                  <span className="text-[10px] font-bold text-slate-400 mr-1 pl-1">Grup:</span>
+                  <select 
+                    value={selectedGroup} 
+                    onChange={(e) => {
+                      setSelectedGroup(e.target.value);
+                      setSelectedWilayah('ALL');
+                      setSelectedUnit('ALL');
+                    }}
+                    className="bg-transparent text-slate-700 font-extrabold text-xs border-none focus:outline-none cursor-pointer"
+                  >
+                    <option value="ALL">Semua Grup</option>
+                    <option value="WILAYAH">Wilayah</option>
+                    <option value="NSD">Grup NSD</option>
+                  </select>
+                </div>
+
+                <div className="flex items-center bg-slate-100 border border-slate-200/80 rounded-xl px-2.5 py-1.5">
+                  <i data-lucide="map-pin" className="w-3.5 h-3.5 text-bni-orange mr-1.5"></i>
+                  <select 
+                    value={selectedWilayah} 
+                    onChange={(e) => {
+                      setSelectedWilayah(e.target.value);
+                      setSelectedUnit('ALL');
+                    }}
+                    className="bg-transparent text-slate-700 font-bold text-xs border-none focus:outline-none cursor-pointer max-w-[120px] truncate"
+                  >
+                    <option value="ALL">Semua Unit Kerja</option>
+                    {wilayahList.map(w => (
+                      <option key={w} value={w}>{w}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="flex items-center bg-slate-100 border border-slate-200/80 rounded-xl px-2.5 py-1.5">
+                  <i data-lucide="building" className="w-3.5 h-3.5 text-slate-500 mr-1.5"></i>
+                  <select 
+                    value={selectedUnit} 
+                    onChange={(e) => setSelectedUnit(e.target.value)}
+                    className="bg-transparent text-slate-700 font-bold text-xs border-none focus:outline-none cursor-pointer max-w-[140px] truncate"
+                  >
+                    <option value="ALL">Semua Unit / Entitas</option>
+                    {unitList.map(u => (
+                      <option key={u} value={u}>{u}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <button onClick={loadData} className="bg-bni-teal hover:bg-bni-teal-dark text-white px-3.5 py-2 rounded-xl text-xs font-bold shadow-sm transition-all flex items-center space-x-1.5">
+                  <i data-lucide="download" className="w-3.5 h-3.5"></i>
+                  <span className="hidden sm:inline">Refresh</span>
+                </button>
+              </div>
+            </header>
+
+            {/* DASHBOARD INNER BODY */}
+            <div className="p-6 space-y-6 max-w-7xl w-full mx-auto">
+              
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="flex items-center space-x-2 text-xs text-slate-400 font-medium mb-1">
+                    <span>General</span>
+                    <i data-lucide="chevron-right" className="w-3 h-3"></i>
+                    <span className="text-bni-teal font-bold capitalize">{activeTab === 'overview' ? 'Overview' : `Projects / ${activeTab}`}</span>
+                  </div>
+                  <h3 className="text-lg font-bold text-slate-800">
+                    {activeTab === 'overview' ? 'Dashboard Overview' : `Detail Anggaran: ${activeTab}`}
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    {activeTab === 'overview' ? 'Track your investment budget and achieve financial goals' : `Monitoring khusus mata anggaran ${activeTab}`}
+                  </p>
+                </div>
+              </div>
+
+              {/* SUMMARY 3 VERSI ALOKASI ANGGARAN CARDS */}
+              <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm space-y-3">
+                <div className="flex items-center justify-between border-b pb-2 border-slate-100">
+                  <h4 className="font-extrabold text-slate-800 text-sm flex items-center space-x-2">
+                    <i data-lucide="layers" className="w-4 h-4 text-bni-teal"></i>
+                    <span>Ringkasan Alokasi Anggaran (3 Versi)</span>
+                  </h4>
+                  <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">REALISASI_PROJECT Sheet</span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="bg-teal-50/50 border border-teal-100 p-4 rounded-xl">
+                    <span className="text-[10px] font-bold text-teal-700 uppercase">a. Usul Alokasi Awal (Kolom K)</span>
+                    <h4 className="text-xl font-black text-slate-800 mt-1">{formatCompactIDR(stats.sumAlokasiAwal)}</h4>
+                    <p className="text-[10px] text-slate-400 mt-1">{formatIDR(stats.sumAlokasiAwal)}</p>
+                  </div>
+
+                  <div className="bg-amber-50/50 border border-amber-100 p-4 rounded-xl">
+                    <span className="text-[10px] font-bold text-amber-700 uppercase">b. Usul Alokasi Revisi RBB (Kolom L)</span>
+                    <h4 className="text-xl font-black text-slate-800 mt-1">{formatCompactIDR(stats.sumAlokasiRevisiRbb)}</h4>
+                    <p className="text-[10px] text-slate-400 mt-1">{formatIDR(stats.sumAlokasiRevisiRbb)}</p>
+                  </div>
+
+                  <div className="bg-blue-50/50 border border-blue-100 p-4 rounded-xl">
+                    <span className="text-[10px] font-bold text-blue-700 uppercase">c. Alokasi EFS (Kolom M)</span>
+                    <h4 className="text-xl font-black text-slate-800 mt-1">{formatCompactIDR(stats.sumAlokasiEfs)}</h4>
+                    <p className="text-[10px] text-slate-400 mt-1">{formatIDR(stats.sumAlokasiEfs)}</p>
+                  </div>
+                </div>
+              </div>
+
+              {activeTab === 'overview' && (
+                <>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+                    <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm flex items-center justify-between">
+                      <div>
+                        <span className="text-xs font-bold text-slate-400 uppercase">Total Alokasi EFS</span>
+                        <h4 className="text-2xl font-black text-slate-800 mt-2 tracking-tight">{formatCompactIDR(stats.sumAlokasiEfs)}</h4>
+                        <p className="text-[11px] font-semibold text-blue-600 mt-1 flex items-center">
+                          <i data-lucide="arrow-up-right" className="w-3.5 h-3.5 mr-0.5"></i>
+                          <span>Pagu Alokasi EFS (Kolom M)</span>
+                        </p>
+                      </div>
+                      <MiniSparkBar color="teal" />
+                    </div>
+
+                    <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm flex items-center justify-between">
+                      <div>
+                        <span className="text-xs font-bold text-slate-400 uppercase">Total Realisasi</span>
+                        <h4 className="text-2xl font-black text-bni-orange mt-2 tracking-tight">{formatCompactIDR(stats.totalRealisasi)}</h4>
+                        <p className="text-[11px] font-semibold text-bni-orange mt-1 flex items-center">
+                          <i data-lucide="trending-up" className="w-3.5 h-3.5 mr-0.5"></i>
+                          <span>Penyerapan Jan - Des</span>
+                        </p>
+                      </div>
+                      <MiniSparkBar color="orange" />
+                    </div>
+
+                    <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm flex flex-col justify-between">
+                      <div className="flex items-center justify-between border-b pb-3 border-slate-100">
+                        <span className="text-xs font-bold text-slate-400 uppercase">Penyerapan vs Sisa</span>
+                        <span className="text-xs font-extrabold text-bni-teal bg-bni-teal-subtle px-2 py-0.5 rounded-md">KPI Target</span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-4 pt-2">
+                        <div>
+                          <p className="text-[11px] text-slate-400 font-medium">Realisasi (%)</p>
+                          <p className="text-xl font-extrabold text-slate-800">{stats.pctTotal}%</p>
+                        </div>
+                        <div>
+                          <p className="text-[11px] text-slate-400 font-medium">Sisa Anggaran EFS</p>
+                          <p className="text-sm font-bold text-slate-600 truncate">{formatCompactIDR(stats.sisaBudget)}</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <h4 className="font-bold text-slate-800 text-sm mb-3 flex items-center space-x-2">
+                      <i data-lucide="box" className="w-4 h-4 text-bni-teal"></i>
+                      <span>Summary Per Mata Anggaran</span>
+                    </h4>
+                    <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
+                      {Object.entries(categorySummaryBoxes).map(([catName, data]) => {
+                        const pct = data.alokasi > 0 ? ((data.realisasi / data.alokasi) * 100).toFixed(1) : 0;
+                        return (
+                          <div 
+                            key={catName} 
+                            onClick={() => setActiveTab(catName)}
+                            className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm hover:shadow-md transition-all cursor-pointer space-y-3 group"
+                          >
+                            <div className="flex items-center justify-between">
+                              <h5 className="font-extrabold text-slate-800 text-xs truncate max-w-[120px] group-hover:text-bni-teal transition-colors">{catName}</h5>
+                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                pct >= 85 ? 'bg-emerald-100 text-emerald-800' :
+                                pct >= 60 ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-700'
+                              }`}>
+                                {pct}%
+                              </span>
+                            </div>
+
+                            <div className="flex items-center justify-between text-[11px] bg-slate-50 p-2 rounded-xl">
+                              <span className="text-slate-400 font-medium">Project: <b className="text-slate-700">{data.totalProject}</b></span>
+                              <div className="space-x-1 border-l pl-1 border-slate-200">
+                                <span className="text-emerald-700 bg-emerald-50 font-bold px-1 py-0.5 rounded text-[10px]">{data.aktif} A</span>
+                                <span className="text-rose-700 bg-rose-50 font-bold px-1 py-0.5 rounded text-[10px]">{data.nonAktif} NA</span>
+                              </div>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-1 text-xs border-t pt-2 border-slate-100">
+                              <div>
+                                <span className="text-slate-400 text-[9px] block font-medium uppercase">Alokasi</span>
+                                <span className="font-bold text-slate-700 text-[11px]">{formatCompactIDR(data.alokasi)}</span>
+                              </div>
+                              <div>
+                                <span className="text-slate-400 text-[9px] block font-medium uppercase">Realisasi</span>
+                                <span className="font-extrabold text-bni-orange text-[11px]">{formatCompactIDR(data.realisasi)}</span>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* BARIS SEJAJAR 3 CHART */}
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <div className="lg:col-span-2 bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm flex flex-col justify-between">
+                      <div className="flex items-center justify-between border-b pb-2 mb-3 border-slate-100">
+                        <h4 className="font-extrabold text-slate-800 text-sm flex items-center space-x-2">
+                          <i data-lucide="bar-chart-horizontal" className="w-4 h-4 text-bni-teal"></i>
+                          <span>Perbandingan Alokasi vs % Realisasi per Wilayah (Mirror Mode)</span>
+                        </h4>
+                        <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">Urut Tertinggi</span>
+                      </div>
+                      
+                      <MirrorHorizontalBarChart 
+                        labels={mirrorChartData.labels}
+                        alokasiData={mirrorChartData.alokasi}
+                        pctRealisasiData={mirrorChartData.pctRealisasi}
+                      />
+                    </div>
+
+                    <HalfGaugeChart 
+                      percentage={stats.pctTotal}
+                      totalRealisasi={stats.totalRealisasi}
+                      totalAlokasi={stats.sumAlokasiEfs}
+                    />
+                  </div>
+                </>
+              )}
+
+              {/* RECENT TRANSACTION TABLE */}
+              <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm flex flex-col justify-between overflow-hidden">
+                <div className="p-5 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h4 className="font-bold text-slate-800 text-sm">
+                      {activeTab === 'overview' ? 'Daftar Realisasi Projects' : `Daftar Project: ${activeTab}`}
+                    </h4>
+                    <p className="text-xs text-slate-400">Klik tombol <b className="text-bni-teal">Detail</b> untuk meng-input realisasi bulanan</p>
+                  </div>
+                  
+                  <div className="flex items-center space-x-3">
+                    <span className="text-xs font-bold text-bni-teal bg-bni-teal-subtle px-2.5 py-1 rounded-lg">
+                      {tableRows.length} Total Items
+                    </span>
+                  </div>
+                </div>
+
+                {/* BARIS FILTER KHUSUS TABEL */}
+                <div className="p-4 bg-slate-50/70 border-b border-slate-100 flex flex-wrap items-center gap-3">
+                  <div className="relative min-w-[200px] flex-1">
+                    <i data-lucide="search" className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5"></i>
+                    <input 
+                      type="text" 
+                      placeholder="Cari Nama / Project Number..." 
+                      value={tableSearchTerm}
+                      onChange={(e) => setTableSearchTerm(e.target.value)}
+                      className="w-full pl-8 pr-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-medium focus:outline-none focus:border-bni-teal transition-all shadow-sm"
+                    />
+                  </div>
+
+                  <div className="flex items-center bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 shadow-sm">
+                    <span className="text-[10px] font-bold text-slate-400 mr-1.5">Wilayah:</span>
+                    <select 
+                      value={tableWilayahFilter} 
+                      onChange={(e) => setTableWilayahFilter(e.target.value)}
+                      className="bg-transparent text-slate-700 font-bold text-xs border-none focus:outline-none cursor-pointer max-w-[130px] truncate"
+                    >
+                      <option value="ALL">Semua Wilayah</option>
+                      {wilayahList.map(w => (
+                        <option key={w} value={w}>{w}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="flex items-center bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 shadow-sm">
+                    <span className="text-[10px] font-bold text-slate-400 mr-1.5">Anggaran:</span>
+                    <select 
+                      value={tableKategoriFilter} 
+                      onChange={(e) => setTableKategoriFilter(e.target.value)}
+                      className="bg-transparent text-slate-700 font-bold text-xs border-none focus:outline-none cursor-pointer max-w-[140px] truncate"
+                    >
+                      <option value="ALL">Semua Anggaran</option>
+                      {kategoriList.map(c => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="flex items-center bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 shadow-sm">
+                    <span className="text-[10px] font-bold text-slate-400 mr-1.5">Status Proyek:</span>
+                    <select 
+                      value={tableStatusProjFilter} 
+                      onChange={(e) => setTableStatusProjFilter(e.target.value)}
+                      className="bg-transparent text-slate-700 font-bold text-xs border-none focus:outline-none cursor-pointer"
+                    >
+                      <option value="ALL">Semua Status</option>
+                      <option value="AKTIF">AKTIF</option>
+                      <option value="NON_AKTIF">NON AKTIF</option>
+                    </select>
+                  </div>
+
+                  <div className="flex items-center bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 shadow-sm">
+                    <span className="text-[10px] font-bold text-slate-400 mr-1.5">Status ENP:</span>
+                    <select 
+                      value={tableStatusEnpFilter} 
+                      onChange={(e) => setTableStatusEnpFilter(e.target.value)}
+                      className="bg-transparent text-slate-700 font-bold text-xs border-none focus:outline-none cursor-pointer"
+                    >
+                      <option value="ALL">Semua Status ENP</option>
+                      {statusEnpList.map(st => (
+                        <option key={st} value={st}>{st}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {(tableSearchTerm || tableWilayahFilter !== 'ALL' || tableKategoriFilter !== 'ALL' || tableStatusProjFilter !== 'ALL' || tableStatusEnpFilter !== 'ALL') && (
+                    <button 
+                      onClick={resetTableFilters}
+                      className="text-[11px] font-bold text-rose-600 hover:text-rose-800 bg-rose-50 hover:bg-rose-100 px-3 py-1.5 rounded-xl transition-all flex items-center space-x-1"
+                    >
+                      <i data-lucide="rotate-ccw" className="w-3 h-3"></i>
+                      <span>Reset Filter</span>
+                    </button>
+                  )}
+                </div>
+
+                <div className="overflow-x-auto custom-scrollbar flex-1">
+                  <table className="w-full text-left text-xs text-slate-600">
+                    <thead className="bg-slate-50/80 text-slate-400 font-bold uppercase text-[10px] tracking-wider border-b border-slate-100">
+                      <tr>
+                        <th className="py-3 px-4">Project & Number</th>
+                        <th className="py-3 px-4">Unit Kerja & Operating Unit</th>
+                        <th className="py-3 px-4">Mata Anggaran</th>
+                        {activeTab === 'Perabotan Non Otomasi' && (
+                          <th className="py-3 px-4 text-center">Qty</th>
+                        )}
+                        <th className="py-3 px-4 text-right">ENP Awal (Kolom I)</th>
+                        <th className="py-3 px-4 text-right">Alokasi Awal</th>
+                        <th className="py-3 px-4 text-right">Revisi RBB</th>
+                        <th className="py-3 px-4 text-right">Alokasi EFS</th>
+                        <th className="py-3 px-4 text-right">Realisasi</th>
+                        <th className="py-3 px-4 text-center">Status</th>
+                        <th className="py-3 px-4 text-center">Aksi</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {loading ? (
+                        <tr>
+                          <td colSpan={totalColumns} className="py-12 text-center text-slate-400">
+                            <i data-lucide="loader-2" className="w-6 h-6 animate-spin mx-auto mb-2 text-bni-teal"></i>
+                            Memuat data dari Google Sheets...
+                          </td>
+                        </tr>
+                      ) : currentTableData.length === 0 ? (
+                        <tr>
+                          <td colSpan={totalColumns} className="py-12 text-center text-slate-400">
+                            Tidak ada data project yang sesuai dengan filter.
+                          </td>
+                        </tr>
+                      ) : (
+                        currentTableData.map((row, idx) => {
+                          let rowTotal = 0;
+                          MONTHS.forEach(m => { rowTotal += Number(row[m.toLowerCase()]) || 0; });
+                          const isNonAktif = String(row.statusProject).toUpperCase() === 'NON AKTIF' || String(row.statusProject).toUpperCase() === 'DROPPED';
+                          const isPenyesuaianEnp = String(row.statusEnp || '').toUpperCase() === 'PENYESUAIAN';
+
+                          return (
+                            <tr key={idx} className="hover:bg-slate-50/80 transition-colors">
+                              <td className="py-3 px-4 max-w-[200px]">
+                                <div className="flex flex-col space-y-0.5">
+                                  {row.projectNumber && (
+                                    <span className="inline-block w-max text-[9px] font-extrabold text-bni-teal bg-teal-50 px-1.5 py-0.5 rounded border border-teal-200/50">
+                                      {row.projectNumber}
+                                    </span>
+                                  )}
+                                  <span className="font-bold text-slate-800 truncate" title={row.namaProject}>
+                                    {row.namaProject || '-'}
+                                  </span>
+                                </div>
+                              </td>
+
+                              <td className="py-3 px-4 max-w-[180px]">
+                                <div className="flex flex-col space-y-1">
+                                  <span className={`inline-block w-max px-1.5 py-0.5 rounded text-[9px] font-extrabold ${
+                                    row.typeGroup === 'NSD' ? 'bg-indigo-100 text-indigo-800' : 'bg-teal-100 text-teal-800'
+                                  }`}>
+                                    {row.wilayah}
+                                  </span>
+                                  <span className="font-bold text-slate-700 truncate" title={row.operatingUnit}>
+                                    {row.operatingUnit || '-'}
+                                  </span>
+                                </div>
+                              </td>
+
+                              <td className="py-3 px-4 whitespace-nowrap">
+                                <span className="px-2 py-0.5 rounded text-[10px] bg-slate-100 text-slate-600 font-medium">
+                                  {row.kategori}
+                                </span>
+                              </td>
+
+                              {activeTab === 'Perabotan Non Otomasi' && (
+                                <td className="py-3 px-4 text-center font-bold text-slate-700 whitespace-nowrap">
+                                  <span className="bg-slate-100 px-2 py-0.5 rounded-md text-xs">
+                                    {new Intl.NumberFormat('id-ID').format(row.qty || 0)}
+                                  </span>
+                                </td>
+                              )}
+
+                              <td className="py-3 px-4 text-right font-semibold text-slate-600 whitespace-nowrap">
+                                {formatIDR(row.enpAwal)}
+                              </td>
+
+                              <td className="py-3 px-4 text-right font-medium text-slate-700 whitespace-nowrap">
+                                {formatIDR(row.alokasiAwal)}
+                              </td>
+
+                              <td className="py-3 px-4 text-right font-medium text-amber-700 whitespace-nowrap">
+                                {formatIDR(row.alokasiRevisiRbb)}
+                              </td>
+
+                              <td className="py-3 px-4 text-right font-medium text-blue-700 whitespace-nowrap">
+                                {formatIDR(row.alokasiEfs)}
+                              </td>
+
+                              <td className="py-3 px-4 text-right font-bold text-bni-orange whitespace-nowrap">
+                                {formatIDR(rowTotal)}
+                              </td>
+
+                              <td className="py-3 px-4 text-center whitespace-nowrap">
+                                <div className="flex flex-col items-center space-y-1">
+                                  <span className={`px-2 py-0.5 rounded font-extrabold text-[9px] uppercase tracking-wider ${
+                                    isPenyesuaianEnp 
+                                      ? 'bg-amber-100 text-amber-800 border border-amber-300' 
+                                      : 'bg-slate-100 text-slate-500'
+                                  }`}>
+                                    ENP: {row.statusEnp || 'OK'}
+                                  </span>
+
+                                  {isNonAktif ? (
+                                    <span className="px-2.5 py-0.5 rounded-full font-bold text-[10px] bg-rose-100 text-rose-700">
+                                      {row.statusProject || 'NON AKTIF'}
+                                    </span>
+                                  ) : (
+                                    <span className="px-2.5 py-0.5 rounded-full font-bold text-[10px] bg-emerald-100 text-emerald-700">
+                                      {row.statusProject || 'AKTIF'}
+                                    </span>
+                                  )}
+                                </div>
+                              </td>
+
+                              <td className="py-3 px-4 text-center whitespace-nowrap">
+                                <button
+                                  onClick={() => handleOpenDetailModal(row)}
+                                  className="inline-flex items-center space-x-1 px-3 py-1 bg-bni-teal hover:bg-bni-teal-dark text-white rounded-lg font-bold text-[11px] shadow-sm transition-all"
+                                >
+                                  <i data-lucide="eye" className="w-3.5 h-3.5"></i>
+                                  <span>Detail</span>
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* PAGINASI HALAMAN */}
+                {!loading && tableRows.length > 0 && (
+                  <div className="p-4 border-t border-slate-100 bg-slate-50/50 flex flex-wrap items-center justify-between gap-4">
+                    <div className="flex items-center space-x-4">
+                      <div className="flex items-center space-x-2 text-xs text-slate-500 font-medium">
+                        <span>Tampilkan:</span>
+                        <select 
+                          value={itemsPerPage} 
+                          onChange={(e) => setItemsPerPage(Number(e.target.value))}
+                          className="bg-white border border-slate-200 rounded-lg px-2 py-1 font-bold text-slate-700 text-xs focus:outline-none focus:border-bni-teal cursor-pointer"
+                        >
+                          <option value={5}>5</option>
+                          <option value={10}>10</option>
+                          <option value={20}>20</option>
+                          <option value={50}>50</option>
+                          <option value={100}>100</option>
+                        </select>
+                        <span>baris</span>
+                      </div>
+
+                      <span className="text-xs text-slate-400 font-medium border-l pl-4 border-slate-200">
+                        Menampilkan <b className="text-slate-700">{(currentPage - 1) * itemsPerPage + 1}</b> - <b className="text-slate-700">{Math.min(currentPage * itemsPerPage, tableRows.length)}</b> dari <b className="text-bni-teal">{tableRows.length}</b> data
+                      </span>
+                    </div>
+
+                    <div className="flex items-center space-x-1">
+                      <button
+                        onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                        disabled={currentPage === 1}
+                        className="px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-white text-xs font-bold transition-all flex items-center space-x-1"
+                      >
+                        <i data-lucide="chevron-left" className="w-3.5 h-3.5"></i>
+                        <span className="hidden sm:inline">Sebelumnya</span>
+                      </button>
+
+                      {pageNumbers.map((p, idx) => {
+                        if (p === '...') {
+                          return (
+                            <span key={`dots-${idx}`} className="px-2 py-1 text-slate-400 font-bold text-xs">
+                              ...
+                            </span>
+                          );
+                        }
+                        return (
+                          <button
+                            key={p}
+                            onClick={() => setCurrentPage(p)}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-extrabold transition-all ${
+                              currentPage === p
+                                ? 'bg-bni-teal text-white shadow-sm'
+                                : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'
+                            }`}
+                          >
+                            {p}
+                          </button>
+                        );
+                      })}
+
+                      <button
+                        onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                        disabled={currentPage === totalPages}
+                        className="px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-white text-xs font-bold transition-all flex items-center space-x-1"
+                      >
+                        <span className="hidden sm:inline">Selanjutnya</span>
+                        <i data-lucide="chevron-right" className="w-3.5 h-3.5"></i>
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+              </div>
+
+            </div>
+          </main>
+
+          {/* MODAL POPUP FITUR DETAIL & INPUT REALISASI */}
+          {selectedProjectForModal && (() => {
+            const isNonAktif = String(selectedProjectForModal.statusProject || '').toUpperCase() === 'NON AKTIF' || String(selectedProjectForModal.statusProject || '').toUpperCase() === 'DROPPED';
+            const isPenyesuaianEnp = String(selectedProjectForModal.statusEnp || '').toUpperCase() === 'PENYESUAIAN';
+
+            return (
+              <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fadeIn">
+                <div className="bg-white rounded-2xl shadow-2xl border border-slate-100 max-w-4xl w-full max-h-[90vh] flex flex-col overflow-hidden transition-all transform scale-100">
+                  
+                  <div className="bg-bni-teal text-white px-6 py-4 flex items-center justify-between shrink-0">
+                    <div className="flex items-center space-x-2.5">
+                      <div className="p-2 bg-white/10 rounded-xl">
+                        <i data-lucide="layers" className="w-5 h-5 text-amber-300"></i>
+                      </div>
+                      <div>
+                        <h3 className="font-extrabold text-base">Detail & Management Project</h3>
+                        <p className="text-[11px] text-teal-100 font-medium">Input Realisasi Otomatis Terhubung ke Database</p>
+                      </div>
+                    </div>
+                    <button 
+                      onClick={() => setSelectedProjectForModal(null)}
+                      className="p-1 rounded-lg text-teal-100 hover:bg-white/10 hover:text-white transition-all"
+                    >
+                      <i data-lucide="x" className="w-5 h-5"></i>
+                    </button>
+                  </div>
+
+                  <div className="p-6 overflow-y-auto space-y-6 custom-scrollbar text-xs">
+                    
+                    <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200/80 space-y-4">
+                      <div className="flex items-center justify-between border-b pb-2 border-slate-200">
+                        <h4 className="font-extrabold text-slate-800 text-sm flex items-center space-x-2">
+                          <i data-lucide="info" className="w-4 h-4 text-bni-teal"></i>
+                          <span>1. Informasi Project</span>
+                        </h4>
+                        <span className="text-[10px] font-semibold text-slate-400 bg-white px-2 py-0.5 rounded-full border border-slate-200">REALISASI_PROJECT Sheet</span>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                        <div>
+                          <span className="text-slate-400 font-bold block text-[10px] uppercase">a. Wilayah</span>
+                          <p className="font-extrabold text-slate-800 text-xs mt-0.5">{selectedProjectForModal.wilayah || '-'}</p>
+                        </div>
+
+                        <div>
+                          <span className="text-slate-400 font-bold block text-[10px] uppercase">b. Entitas</span>
+                          <p className="font-extrabold text-slate-800 text-xs mt-0.5">{selectedProjectForModal.entitas || '-'}</p>
+                        </div>
+
+                        <div>
+                          <span className="text-slate-400 font-bold block text-[10px] uppercase">c. Operating Unit</span>
+                          <p className="font-extrabold text-slate-800 text-xs mt-0.5">{selectedProjectForModal.operatingUnit || '-'}</p>
+                        </div>
+
+                        <div>
+                          <span className="text-slate-400 font-bold block text-[10px] uppercase">d. Mata Anggaran</span>
+                          <p className="font-extrabold text-slate-800 text-xs mt-0.5">{selectedProjectForModal.kategori || '-'}</p>
+                        </div>
+
+                        <div>
+                          <span className="text-slate-400 font-bold block text-[10px] uppercase">e. Project Number</span>
+                          <p className="font-black text-bni-teal text-xs mt-0.5">{selectedProjectForModal.projectNumber || '-'}</p>
+                        </div>
+
+                        <div className="sm:col-span-2 md:col-span-3">
+                          <span className="text-slate-400 font-bold block text-[10px] uppercase">f. Nama Project</span>
+                          <p className="font-bold text-slate-800 text-xs mt-0.5">{selectedProjectForModal.namaProject || '-'}</p>
+                        </div>
+
+                        <div>
+                          <span className="text-slate-400 font-bold block text-[10px] uppercase">g. Status ENP</span>
+                          <span className={`inline-block font-bold text-[10px] px-2 py-0.5 rounded mt-1 ${
+                            isPenyesuaianEnp ? 'bg-amber-100 text-amber-800' : 'bg-slate-200 text-slate-700'
+                          }`}>
+                            {selectedProjectForModal.statusEnp || 'OK'}
+                          </span>
+                        </div>
+
+                        <div>
+                          <span className="text-slate-400 font-bold block text-[10px] uppercase">h. Status Project</span>
+                          <span className={`inline-block font-bold text-[10px] px-2 py-0.5 rounded mt-1 ${
+                            isNonAktif ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700'
+                          }`}>
+                            {selectedProjectForModal.statusProject || 'AKTIF'}
+                          </span>
+                        </div>
+
+                        <div>
+                          <span className="text-slate-400 font-bold block text-[10px] uppercase">i. ENP Awal (Rp)</span>
+                          <p className="font-extrabold text-slate-700 text-xs mt-0.5">{formatIDR(selectedProjectForModal.enpAwal)}</p>
+                        </div>
+
+                        <div>
+                          <span className="text-slate-400 font-bold block text-[10px] uppercase">j. Usul Perubahan ENP (Rp)</span>
+                          <p className="font-extrabold text-amber-700 text-xs mt-0.5">
+                            {selectedProjectForModal.usulPerubahanEnp !== null ? formatIDR(selectedProjectForModal.usulPerubahanEnp) : '-'}
+                          </p>
+                        </div>
+
+                        <div className="border-t pt-2 border-slate-200 sm:col-span-2 md:col-span-3 lg:col-span-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
+                          <div>
+                            <span className="text-slate-400 font-bold block text-[10px] uppercase">k. Usul Alokasi Awal</span>
+                            <p className="font-black text-bni-teal text-xs mt-0.5">{formatIDR(selectedProjectForModal.alokasiAwal)}</p>
+                          </div>
+                          <div>
+                            <span className="text-slate-400 font-bold block text-[10px] uppercase">l. Usul Alokasi Revisi RBB</span>
+                            <p className="font-black text-amber-700 text-xs mt-0.5">{formatIDR(selectedProjectForModal.alokasiRevisiRbb)}</p>
+                          </div>
+                          <div>
+                            <span className="text-slate-400 font-bold block text-[10px] uppercase">m. Alokasi EFS</span>
+                            <p className="font-black text-blue-700 text-xs mt-0.5">{formatIDR(selectedProjectForModal.alokasiEfs)}</p>
+                          </div>
+                        </div>
+                      </div>
+
+                      {isNonAktif && (
+                        <div className="bg-rose-50 border border-rose-200 p-3.5 rounded-xl space-y-1">
+                          <div className="flex items-center space-x-1.5 text-rose-700 font-extrabold text-xs">
+                            <i data-lucide="alert-triangle" className="w-4 h-4"></i>
+                            <span>Catatan Pembatalan / Non Aktif (Sheet REJECTED_PROJECT Kolom I):</span>
+                          </div>
+                          <p className="text-slate-700 font-semibold text-xs leading-relaxed pl-5">
+                            {selectedProjectForModal.catatanPembatalan || "Project tidak disetujui / dibatalkan."}
+                          </p>
+                        </div>
+                      )}
+
+                      {isPenyesuaianEnp && (
+                        <div className="bg-amber-50 border border-amber-200 p-3.5 rounded-xl flex items-center justify-between flex-wrap gap-2">
+                          <div className="flex items-center space-x-2 text-amber-800 font-bold text-xs">
+                            <i data-lucide="file-text" className="w-4 h-4 text-bni-orange"></i>
+                            <span>Status Penyesuaian ENP Disertai Berkas Dokumen:</span>
+                          </div>
+                          {selectedProjectForModal.linkDokumenEnp ? (
+                            <a 
+                              href={selectedProjectForModal.linkDokumenEnp} 
+                              target="_blank" 
+                              rel="noopener noreferrer"
+                              className="bg-bni-orange hover:bg-bni-orange-dark text-white px-3 py-1 rounded-lg text-xs font-bold transition-all flex items-center space-x-1 shadow-sm"
+                            >
+                              <i data-lucide="external-link" className="w-3.5 h-3.5"></i>
+                              <span>Lihat Berkas Dokumen ENP (Kolom K)</span>
+                            </a>
+                          ) : (
+                            <span className="text-slate-400 italic font-medium text-xs">Berkas Dokumen ENP Belum Diunggah</span>
+                          )}
+                        </div>
+                      )}
+
+                    </div>
+
+                    <div className="bg-amber-50/40 p-5 rounded-2xl border border-amber-200/60 space-y-3">
+                      <div className="flex items-center justify-between border-b pb-2 border-amber-200/50">
+                        <h4 className="font-extrabold text-slate-800 text-sm flex items-center space-x-2">
+                          <i data-lucide="edit-3" className="w-4 h-4 text-bni-orange"></i>
+                          <span>2. Input Realisasi Bulanan (Jan - Des)</span>
+                        </h4>
+                        <span className="text-[10px] font-semibold text-amber-800">Tersimpan ke Sheet INPUT_REALISASI_USER</span>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                        {MONTHS.map((m) => {
+                          const key = m.toLowerCase();
+                          return (
+                            <div key={m} className="space-y-1">
+                              <label className="text-[10px] font-bold text-slate-500 uppercase flex items-center justify-between">
+                                <span>Realisasi {m}</span>
+                                <span className="text-slate-400 font-normal">Rp</span>
+                              </label>
+                              <input 
+                                type="text" 
+                                value={realisasiInputs[key] || ''} 
+                                onChange={(e) => handleRealisasiInputChange(key, e.target.value)}
+                                placeholder="0"
+                                className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-xl font-bold text-slate-800 text-xs focus:outline-none focus:border-bni-teal text-right"
+                              />
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                  </div>
+
+                  <div className="bg-slate-50 px-6 py-3.5 border-t border-slate-100 flex items-center justify-end space-x-2 shrink-0">
+                    <button 
+                      onClick={() => setSelectedProjectForModal(null)}
+                      className="bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold px-4 py-2 rounded-xl text-xs transition-all"
+                    >
+                      Batal
+                    </button>
+                    <button 
+                      onClick={handleSaveRealisasi}
+                      disabled={saving}
+                      className="bg-bni-orange hover:bg-bni-orange-dark text-white font-bold px-5 py-2 rounded-xl text-xs transition-all shadow-sm flex items-center space-x-1.5 disabled:opacity-50"
+                    >
+                      {saving ? (
+                        <>
+                          <i data-lucide="loader-2" className="w-3.5 h-3.5 animate-spin"></i>
+                          <span>Menyimpan...</span>
+                        </>
+                      ) : (
+                        <>
+                          <i data-lucide="save" className="w-3.5 h-3.5"></i>
+                          <span>Simpan Realisasi</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* RUNNING TEXT TICKER & FOOTER COPYRIGHT DI BAGIAN BAWAH FIX HALAMAN */}
+          <footer className="fixed bottom-0 left-0 right-0 z-40 bg-slate-900 text-white shadow-2xl border-t border-slate-800 text-xs flex flex-col md:flex-row items-center justify-between overflow-hidden">
+            
+            {/* ITEM RUNNING TEXT MARQUEE */}
+            <div className="flex-1 w-full overflow-hidden relative py-2.5 px-4 bg-slate-950 flex items-center">
+              <div className="bg-bni-orange text-white text-[10px] font-black px-2 py-0.5 rounded uppercase tracking-wider mr-3 shrink-0 z-10 shadow-sm flex items-center space-x-1">
+                <i data-lucide="trending-up" className="w-3 h-3"></i>
+                <span>Highlight Highlights</span>
+              </div>
+
+              <div className="overflow-hidden w-full relative">
+                <div className="animate-marquee whitespace-nowrap flex items-center space-x-8 text-xs font-medium">
+                  {(() => {
+                    const renderTickerContent = () => (
+                      <>
+                        {/* TOP 5 PROJECTS */}
+                        <div className="flex items-center space-x-4">
+                          <span className="font-extrabold text-emerald-400 uppercase tracking-wider text-[11px] flex items-center">
+                            🔥 Top 5 Realisasi:
+                          </span>
+                          {top5Projects.map((proj, idx) => (
+                            <span key={`top-${idx}`} className="inline-flex items-center space-x-1.5 bg-slate-900 border border-slate-800 px-2.5 py-1 rounded-lg">
+                              <span className="text-slate-400 font-bold text-[10px]">#{idx + 1}</span>
+                              <span className="font-bold text-slate-200 max-w-[140px] truncate" title={proj.namaProject}>
+                                [{proj.projectNumber || 'PROJ'}] {proj.namaProject}
+                              </span>
+                              <span className="text-emerald-400 font-black text-[11px] bg-emerald-950 px-1.5 py-0.5 rounded border border-emerald-800/50">
+                                {proj.pctRealisasi.toFixed(1)}%
+                              </span>
+                            </span>
+                          ))}
+                        </div>
+
+                        <span className="text-slate-700 font-black">|</span>
+
+                        {/* BOTTOM 5 PROJECTS */}
+                        <div className="flex items-center space-x-4">
+                          <span className="font-extrabold text-rose-400 uppercase tracking-wider text-[11px] flex items-center">
+                            ⚠️ Bottom 5 Realisasi:
+                          </span>
+                          {bottom5Projects.map((proj, idx) => (
+                            <span key={`bottom-${idx}`} className="inline-flex items-center space-x-1.5 bg-slate-900 border border-slate-800 px-2.5 py-1 rounded-lg">
+                              <span className="text-slate-400 font-bold text-[10px]">#{idx + 1}</span>
+                              <span className="font-bold text-slate-200 max-w-[140px] truncate" title={proj.namaProject}>
+                                [{proj.projectNumber || 'PROJ'}] {proj.namaProject}
+                              </span>
+                              <span className="text-rose-400 font-black text-[11px] bg-rose-950 px-1.5 py-0.5 rounded border border-rose-800/50">
+                                {proj.pctRealisasi.toFixed(1)}%
+                              </span>
+                              <span className="text-[10px] text-slate-500 font-mono">
+                                ({formatCompactIDR(proj.aloEfs)})
+                              </span>
+                            </span>
+                          ))}
+                        </div>
+
+                        <span className="text-slate-700 font-black">|</span>
+                      </>
+                    );
+
+                    return (
+                      <>
+                        {renderTickerContent()}
+                        {renderTickerContent()}
+                      </>
+                    );
+                  })()}
+                </div>
+              </div>
+            </div>
+
+            {/* COPYRIGHT FOOTER */}
+            <div className="bg-slate-900 px-4 py-2 border-t md:border-t-0 md:border-l border-slate-800 shrink-0 text-slate-400 text-[11px] font-medium text-center">
+              Copyright © 2026 by <b className="text-slate-200 font-extrabold">Fajar Ramadhan - P052099</b> | Divisi NSD
+            </div>
+
+          </footer>
+
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
