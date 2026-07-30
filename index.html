@@ -46,10 +46,11 @@
       0% { transform: translateX(0%); }
       100% { transform: translateX(-50%); }
     }
+    /* KECEPATAN ANIMAIS DIPERLAMBAT DARI 55s MENJADI 85s */
     .animate-marquee {
       display: flex;
       width: max-content;
-      animation: marquee 35s linear infinite;
+      animation: marquee 85s linear infinite;
     }
     .animate-marquee:hover {
       animation-play-state: paused;
@@ -122,7 +123,7 @@
     };
 
     // KOMPONEN HEATMAP MATRIX
-    const HeatmapMatrix = ({ data, categories, wilayahs, type = 'pct' }) => {
+    const HeatmapMatrix = ({ data, categories, wilayahs, type = 'efs' }) => {
       const matrixData = useMemo(() => {
         const matrix = {};
         wilayahs.forEach(w => {
@@ -446,8 +447,10 @@
       const [tableKategoriFilter, setTableKategoriFilter] = useState('ALL');
       const [tableStatusProjFilter, setTableStatusProjFilter] = useState('ALL');
       const [tableStatusEnpFilter, setTableStatusEnpFilter] = useState('ALL');
-
       const [sortConfig, setSortConfig] = useState({ key: null, direction: 'asc' });
+
+      const [topSearchTerm, setTopSearchTerm] = useState('');
+      const [bottomSearchTerm, setBottomSearchTerm] = useState('');
       
       const [activeTab, setActiveTab] = useState('overview'); 
       const [projectsMenuOpen, setProjectsMenuOpen] = useState(true);
@@ -466,7 +469,7 @@
         if (window.lucide) {
           window.lucide.createIcons();
         }
-      }, [activeTab, currentPage, itemsPerPage, loading, rawData, selectedProjectForModal, sortConfig]);
+      }, [activeTab, currentPage, itemsPerPage, loading, rawData, selectedProjectForModal, sortConfig, topSearchTerm, bottomSearchTerm]);
 
       useEffect(() => {
         setCurrentPage(1);
@@ -709,6 +712,104 @@
         };
       }, [filteredData]);
 
+      const mappedProjectsData = useMemo(() => {
+        return filteredData.map(row => {
+          const aloEfs = Number(row.alokasiEfs) || 0;
+          let totalReal = 0;
+          MONTHS.forEach(m => { totalReal += Number(row[m.toLowerCase()]) || 0; });
+          
+          const pct = aloEfs > 0 ? (totalReal / aloEfs) * 100 : 0;
+          return {
+            ...row,
+            totalReal,
+            aloEfs,
+            pctRealisasi: pct
+          };
+        });
+      }, [filteredData]);
+
+      const top10ProjectsList = useMemo(() => {
+        let list = [...mappedProjectsData];
+        if (topSearchTerm) {
+          const term = topSearchTerm.toLowerCase();
+          list = list.filter(p => 
+            (p.namaProject || '').toLowerCase().includes(term) ||
+            (p.projectNumber || '').toLowerCase().includes(term) ||
+            (p.wilayah || '').toLowerCase().includes(term)
+          );
+        }
+
+        return list.sort((a, b) => {
+          if (b.pctRealisasi !== a.pctRealisasi) {
+            return b.pctRealisasi - a.pctRealisasi;
+          }
+          return b.aloEfs - a.aloEfs;
+        }).slice(0, 10);
+      }, [mappedProjectsData, topSearchTerm]);
+
+      const bottom10ProjectsList = useMemo(() => {
+        let list = [...mappedProjectsData];
+        if (bottomSearchTerm) {
+          const term = bottomSearchTerm.toLowerCase();
+          list = list.filter(p => 
+            (p.namaProject || '').toLowerCase().includes(term) ||
+            (p.projectNumber || '').toLowerCase().includes(term) ||
+            (p.wilayah || '').toLowerCase().includes(term)
+          );
+        }
+
+        return list.sort((a, b) => {
+          if (a.pctRealisasi !== b.pctRealisasi) {
+            return a.pctRealisasi - b.pctRealisasi;
+          }
+          return b.aloEfs - a.aloEfs;
+        }).slice(0, 10);
+      }, [mappedProjectsData, bottomSearchTerm]);
+
+      const tickerStats = useMemo(() => {
+        const totalAlokasiEfs = stats.sumAlokasiEfs;
+        
+        const currentMonthIdx = new Date().getMonth();
+        const currentMonthName = MONTHS[currentMonthIdx];
+        
+        let totalKumulatifBulanBerjalan = 0;
+        for (let i = 0; i <= currentMonthIdx; i++) {
+          const mKey = MONTHS[i].toLowerCase();
+          totalKumulatifBulanBerjalan += (stats.monthlyData[mKey] || 0);
+        }
+
+        const pctRealisasiTotal = stats.pctTotal;
+
+        const mapWilayahPct = {};
+        rawData.forEach(row => {
+          const w = row.wilayah;
+          if (w) {
+            if (!mapWilayahPct[w]) mapWilayahPct[w] = { efs: 0, real: 0 };
+            const efs = Number(row.alokasiEfs) || 0;
+            let real = 0;
+            MONTHS.forEach(m => { real += Number(row[m.toLowerCase()]) || 0; });
+
+            mapWilayahPct[w].efs += efs;
+            mapWilayahPct[w].real += real;
+          }
+        });
+
+        const listWilayahPct = Object.keys(mapWilayahPct).map(w => {
+          const efs = mapWilayahPct[w].efs;
+          const real = mapWilayahPct[w].real;
+          const pct = efs > 0 ? (real / efs) * 100 : 0;
+          return { wilayah: w, pct };
+        }).sort((a, b) => b.pct - a.pct);
+
+        return {
+          totalAlokasiEfs,
+          currentMonthName,
+          totalKumulatifBulanBerjalan,
+          pctRealisasiTotal,
+          listWilayahPct
+        };
+      }, [stats, rawData]);
+
       const categorySummaryBoxes = useMemo(() => {
         const targetCats = ["Bangunan Gedung", "Tanah", "Perabotan Otomasi", "Perabotan Non Otomasi", "Kendaraan"];
         const summary = {};
@@ -779,42 +880,6 @@
           alokasi: listSorted.map(item => item.alokasi),
           pctRealisasi: listSorted.map(item => item.pctRealisasi)
         };
-      }, [rawData]);
-
-      const { top5Projects, bottom5Projects } = useMemo(() => {
-        if (!rawData || rawData.length === 0) return { top5Projects: [], bottom5Projects: [] };
-
-        const mappedProjects = rawData.map(row => {
-          const aloEfs = Number(row.alokasiEfs) || 0;
-          let totalReal = 0;
-          MONTHS.forEach(m => { totalReal += Number(row[m.toLowerCase()]) || 0; });
-          
-          const pct = aloEfs > 0 ? (totalReal / aloEfs) * 100 : 0;
-          return {
-            ...row,
-            totalReal,
-            aloEfs,
-            pctRealisasi: pct
-          };
-        });
-
-        const sortedTop = [...mappedProjects].sort((a, b) => {
-          if (b.pctRealisasi !== a.pctRealisasi) {
-            return b.pctRealisasi - a.pctRealisasi;
-          }
-          return b.aloEfs - a.aloEfs;
-        });
-        const top5 = sortedTop.slice(0, 5);
-
-        const sortedBottom = [...mappedProjects].sort((a, b) => {
-          if (a.pctRealisasi !== b.pctRealisasi) {
-            return a.pctRealisasi - b.pctRealisasi;
-          }
-          return b.aloEfs - a.aloEfs;
-        });
-        const bottom5 = sortedBottom.slice(0, 5);
-
-        return { top5Projects: top5, bottom5Projects: bottom5 };
       }, [rawData]);
 
       const handleSort = (key) => {
@@ -1011,11 +1076,11 @@
 
             <div className="pt-4 border-t border-slate-100 flex items-center space-x-3 px-2">
               <div className="w-9 h-9 rounded-full bg-bni-teal-subtle text-bni-teal font-bold flex items-center justify-center text-xs">
-                CU
+                NOS
               </div>
               <div className="overflow-hidden">
-                <p className="text-xs font-bold text-slate-800 truncate">CapEx User</p>
-                <p className="text-[10px] text-slate-400 truncate">user@bni.co.id</p>
+                <p className="text-xs font-bold text-slate-800 truncate">NOS-Dept.</p>
+                <p className="text-[10px] text-slate-400 truncate">Internal Facilities Management Teams</p>
               </div>
             </div>
           </aside>
@@ -1110,40 +1175,41 @@
                     <i data-lucide="layers" className="w-4 h-4 text-bni-teal"></i>
                     <span>Ringkasan Alokasi Anggaran (3 Versi)</span>
                   </h4>
-                  <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">REALISASI_PROJECT Sheet</span>
+                  <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">Total Alokasi</span>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div className="bg-teal-50/50 border border-teal-100 p-4 rounded-xl">
-                    <span className="text-[10px] font-bold text-teal-700 uppercase">a. Usul Alokasi Awal (Kolom K)</span>
+                    <span className="text-[10px] font-bold text-teal-700 uppercase">a. Usul Alokasi Awal</span>
                     <h4 className="text-xl font-black text-slate-800 mt-1">{formatCompactIDR(stats.sumAlokasiAwal)}</h4>
                     <p className="text-[10px] text-slate-400 mt-1">{formatIDR(stats.sumAlokasiAwal)}</p>
                   </div>
 
                   <div className="bg-amber-50/50 border border-amber-100 p-4 rounded-xl">
-                    <span className="text-[10px] font-bold text-amber-700 uppercase">b. Usul Alokasi Revisi RBB (Kolom L)</span>
+                    <span className="text-[10px] font-bold text-amber-700 uppercase">b. Usul Alokasi Revisi RBB</span>
                     <h4 className="text-xl font-black text-slate-800 mt-1">{formatCompactIDR(stats.sumAlokasiRevisiRbb)}</h4>
                     <p className="text-[10px] text-slate-400 mt-1">{formatIDR(stats.sumAlokasiRevisiRbb)}</p>
                   </div>
 
                   <div className="bg-blue-50/50 border border-blue-100 p-4 rounded-xl">
-                    <span className="text-[10px] font-bold text-blue-700 uppercase">c. Alokasi EFS (Kolom M)</span>
+                    <span className="text-[10px] font-bold text-blue-700 uppercase">c. Alokasi EFS</span>
                     <h4 className="text-xl font-black text-slate-800 mt-1">{formatCompactIDR(stats.sumAlokasiEfs)}</h4>
                     <p className="text-[10px] text-slate-400 mt-1">{formatIDR(stats.sumAlokasiEfs)}</p>
                   </div>
                 </div>
               </div>
 
+              {/* TAMPILAN KHUSUS MENU OVERVIEW */}
               {activeTab === 'overview' && (
                 <>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
                     <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm flex items-center justify-between">
                       <div>
-                        <span className="text-xs font-bold text-slate-400 uppercase">Total Alokasi EFS</span>
+                        <span className="text-xs font-bold text-slate-400 uppercase">Total Alokasi (EFS)</span>
                         <h4 className="text-2xl font-black text-slate-800 mt-2 tracking-tight">{formatCompactIDR(stats.sumAlokasiEfs)}</h4>
                         <p className="text-[11px] font-semibold text-blue-600 mt-1 flex items-center">
                           <i data-lucide="arrow-up-right" className="w-3.5 h-3.5 mr-0.5"></i>
-                          <span>Pagu Alokasi EFS (Kolom M)</span>
+                          <span>Alokasi (EFS)</span>
                         </p>
                       </div>
                       <MiniSparkBar color="teal" />
@@ -1163,7 +1229,7 @@
 
                     <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm flex flex-col justify-between">
                       <div className="flex items-center justify-between border-b pb-3 border-slate-100">
-                        <span className="text-xs font-bold text-slate-400 uppercase">Penyerapan vs Sisa</span>
+                        <span className="text-xs font-bold text-slate-400 uppercase">Realisasi vs Alokasi</span>
                         <span className="text-xs font-extrabold text-bni-teal bg-bni-teal-subtle px-2 py-0.5 rounded-md">KPI Target</span>
                       </div>
                       <div className="grid grid-cols-2 gap-4 pt-2">
@@ -1172,7 +1238,7 @@
                           <p className="text-xl font-extrabold text-slate-800">{stats.pctTotal}%</p>
                         </div>
                         <div>
-                          <p className="text-[11px] text-slate-400 font-medium">Sisa Anggaran EFS</p>
+                          <p className="text-[11px] text-slate-400 font-medium">Anggaran Blm Terserap</p>
                           <p className="text-sm font-bold text-slate-600 truncate">{formatCompactIDR(stats.sisaBudget)}</p>
                         </div>
                       </div>
@@ -1228,13 +1294,13 @@
                     </div>
                   </div>
 
-                  {/* 1. MIRROR BAR CHART & HALF-DOUGHNUT GAUGE CHART (SEKARANG POSISI DIATAS HEATMAP) */}
+                  {/* MIRROR BAR CHART & HALF-DOUGHNUT GAUGE CHART */}
                   <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                     <div className="lg:col-span-2 bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm flex flex-col justify-between">
                       <div className="flex items-center justify-between border-b pb-2 mb-3 border-slate-100">
                         <h4 className="font-extrabold text-slate-800 text-sm flex items-center space-x-2">
                           <i data-lucide="bar-chart-horizontal" className="w-4 h-4 text-bni-teal"></i>
-                          <span>Perbandingan Alokasi vs % Realisasi per Wilayah (Mirror Mode)</span>
+                          <span>Perbandingan Alokasi vs % Realisasi per Wilayah</span>
                         </h4>
                         <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">Urut Tertinggi</span>
                       </div>
@@ -1253,14 +1319,42 @@
                     />
                   </div>
 
-                  {/* 2. HEATMAP MATRIX CHARTS (POSISI TEPAT DIATAS TABEL REALISASI) */}
+                  {/* HEATMAP MATRIX CHARTS */}
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    {/* HEATMAP 1: % REALISASI */}
+                    
+                    {/* HEATMAP 1 (KIRI): PAGU ALOKASI EFS */}
+                    <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm space-y-3">
+                      <div className="flex items-center justify-between border-b pb-2 border-slate-100">
+                        <h4 className="font-extrabold text-slate-800 text-sm flex items-center space-x-2">
+                          <i data-lucide="grid" className="w-4 h-4 text-bni-teal"></i>
+                          <span>Heatmap Matrix 1: Pagu Alokasi EFS</span>
+                        </h4>
+                        <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">Konsentrasi Anggaran</span>
+                      </div>
+                      <p className="text-[11px] text-slate-400">Sebaran besaran alokasi anggaran investasi (EFS) per unit wilayah.</p>
+
+                      <HeatmapMatrix 
+                        data={rawData} 
+                        categories={kategoriList} 
+                        wilayahs={wilayahList} 
+                        type="efs" 
+                      />
+
+                      <div className="flex items-center justify-end space-x-2 text-[9px] font-bold text-slate-500 pt-2 border-t border-slate-100">
+                        <span>Legenda Pagu:</span>
+                        <span className="px-1.5 py-0.5 bg-sky-100 text-sky-800 rounded">Rendah</span>
+                        <span className="px-1.5 py-0.5 bg-teal-200 text-teal-900 rounded">Sedang</span>
+                        <span className="px-1.5 py-0.5 bg-teal-600 text-white rounded">Tinggi</span>
+                        <span className="px-1.5 py-0.5 bg-bni-teal text-white rounded">Sangat Tinggi</span>
+                      </div>
+                    </div>
+
+                    {/* HEATMAP 2 (KANAN): % REALISASI */}
                     <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm space-y-3">
                       <div className="flex items-center justify-between border-b pb-2 border-slate-100">
                         <h4 className="font-extrabold text-slate-800 text-sm flex items-center space-x-2">
                           <i data-lucide="grid" className="w-4 h-4 text-bni-orange"></i>
-                          <span>Heatmap Matrix 1: % Realisasi Penyerapan</span>
+                          <span>Heatmap Matrix 2: % Realisasi Penyerapan</span>
                         </h4>
                         <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">Wilayah vs Anggaran</span>
                       </div>
@@ -1283,410 +1377,537 @@
                       </div>
                     </div>
 
-                    {/* HEATMAP 2: ALOKASI EFS */}
-                    <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm space-y-3">
-                      <div className="flex items-center justify-between border-b pb-2 border-slate-100">
-                        <h4 className="font-extrabold text-slate-800 text-sm flex items-center space-x-2">
-                          <i data-lucide="grid" className="w-4 h-4 text-bni-teal"></i>
-                          <span>Heatmap Matrix 2: Pagu Alokasi EFS</span>
-                        </h4>
-                        <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">Konsentrasi Anggaran</span>
+                  </div>
+
+                  {/* DUA LIST CARDS KHUSUS DI MENU OVERVIEW */}
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    
+                    {/* LIST 1: TOP 10 PROJECT */}
+                    <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm flex flex-col justify-between overflow-hidden">
+                      <div className="p-4 border-b border-slate-100 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <h4 className="font-extrabold text-slate-800 text-sm flex items-center space-x-2">
+                            <i data-lucide="trending-up" className="w-4 h-4 text-emerald-600"></i>
+                            <span>Top 10 Project (% Realisasi Tertinggi)</span>
+                          </h4>
+                          <span className="text-[10px] font-extrabold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
+                            High Performers
+                          </span>
+                        </div>
+                        <div className="relative">
+                          <i data-lucide="search" className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5"></i>
+                          <input 
+                            type="text" 
+                            placeholder="Cari Top Proyek / Wilayah..." 
+                            value={topSearchTerm}
+                            onChange={(e) => setTopSearchTerm(e.target.value)}
+                            className="w-full pl-8 pr-3 py-1 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:outline-none focus:border-bni-teal transition-all"
+                          />
+                        </div>
                       </div>
-                      <p className="text-[11px] text-slate-400">Sebaran besaran alokasi anggaran investasi (EFS) per unit wilayah.</p>
 
-                      <HeatmapMatrix 
-                        data={rawData} 
-                        categories={kategoriList} 
-                        wilayahs={wilayahList} 
-                        type="efs" 
-                      />
+                      <div className="divide-y divide-slate-100 max-h-[580px] overflow-y-auto custom-scrollbar p-2 space-y-1">
+                        {loading ? (
+                          <div className="p-8 text-center text-slate-400 text-xs">
+                            <i data-lucide="loader-2" className="w-5 h-5 animate-spin mx-auto mb-2 text-bni-teal"></i>
+                            Memuat data proyek...
+                          </div>
+                        ) : top10ProjectsList.length === 0 ? (
+                          <div className="p-8 text-center text-slate-400 text-xs">
+                            Tidak ada data proyek sesuai pencarian.
+                          </div>
+                        ) : (
+                          top10ProjectsList.map((item, idx) => (
+                            <div key={idx} className="p-2.5 rounded-xl hover:bg-emerald-50/30 transition-all flex items-center justify-between gap-3 border border-transparent hover:border-emerald-100">
+                              <div className="flex items-start space-x-2.5 min-w-0">
+                                <span className="w-5 h-5 rounded-full bg-emerald-100 text-emerald-800 font-extrabold text-[10px] flex items-center justify-center shrink-0 mt-0.5">
+                                  {idx + 1}
+                                </span>
+                                <div className="min-w-0 space-y-0.5">
+                                  <div className="flex items-center space-x-1.5 flex-wrap">
+                                    {item.projectNumber && (
+                                      <span className="text-[9px] font-extrabold text-bni-teal bg-teal-50 px-1 py-0.2 rounded border border-teal-200/50">
+                                        {item.projectNumber}
+                                      </span>
+                                    )}
+                                    <span className="text-[9px] font-black uppercase text-indigo-700 bg-indigo-50 px-1 py-0.2 rounded">
+                                      {item.wilayah}
+                                    </span>
+                                  </div>
+                                  <h5 className="font-bold text-slate-800 text-xs truncate" title={item.namaProject}>
+                                    {item.namaProject || '-'}
+                                  </h5>
+                                  <p className="text-[10px] text-slate-400 truncate">
+                                    {item.operatingUnit} • <b className="text-slate-600">{formatCompactIDR(item.totalReal)}</b> / {formatCompactIDR(item.aloEfs)}
+                                  </p>
+                                </div>
+                              </div>
 
-                      <div className="flex items-center justify-end space-x-2 text-[9px] font-bold text-slate-500 pt-2 border-t border-slate-100">
-                        <span>Legenda Pagu:</span>
-                        <span className="px-1.5 py-0.5 bg-sky-100 text-sky-800 rounded">Rendah</span>
-                        <span className="px-1.5 py-0.5 bg-teal-200 text-teal-900 rounded">Sedang</span>
-                        <span className="px-1.5 py-0.5 bg-teal-600 text-white rounded">Tinggi</span>
-                        <span className="px-1.5 py-0.5 bg-bni-teal text-white rounded">Sangat Tinggi</span>
+                              <div className="flex flex-col items-end shrink-0 space-y-1">
+                                <span className="px-2 py-0.5 rounded-md font-black text-xs bg-emerald-100 text-emerald-800 shadow-sm">
+                                  {item.pctRealisasi.toFixed(2)}%
+                                </span>
+                                <button
+                                  onClick={() => handleOpenDetailModal(item)}
+                                  className="text-[10px] font-bold text-bni-teal hover:underline flex items-center space-x-0.5"
+                                >
+                                  <span>Detail</span>
+                                  <i data-lucide="chevron-right" className="w-3 h-3"></i>
+                                </button>
+                              </div>
+                            </div>
+                          ))
+                        )}
                       </div>
                     </div>
+
+                    {/* LIST 2: BOTTOM 10 PROJECT */}
+                    <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm flex flex-col justify-between overflow-hidden">
+                      <div className="p-4 border-b border-slate-100 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <h4 className="font-extrabold text-slate-800 text-sm flex items-center space-x-2">
+                            <i data-lucide="alert-triangle" className="w-4 h-4 text-rose-600"></i>
+                            <span>Bottom 10 Project (Penyerapan Lambat)</span>
+                          </h4>
+                          <span className="text-[10px] font-extrabold text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-full">
+                            Need Attention
+                          </span>
+                        </div>
+                        <div className="relative">
+                          <i data-lucide="search" className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5"></i>
+                          <input 
+                            type="text" 
+                            placeholder="Cari Proyek Lambat / Wilayah..." 
+                            value={bottomSearchTerm}
+                            onChange={(e) => setBottomSearchTerm(e.target.value)}
+                            className="w-full pl-8 pr-3 py-1 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:outline-none focus:border-bni-teal transition-all"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="divide-y divide-slate-100 max-h-[580px] overflow-y-auto custom-scrollbar p-2 space-y-1">
+                        {loading ? (
+                          <div className="p-8 text-center text-slate-400 text-xs">
+                            <i data-lucide="loader-2" className="w-5 h-5 animate-spin mx-auto mb-2 text-bni-teal"></i>
+                            Memuat data proyek...
+                          </div>
+                        ) : bottom10ProjectsList.length === 0 ? (
+                          <div className="p-8 text-center text-slate-400 text-xs">
+                            Tidak ada data proyek sesuai pencarian.
+                          </div>
+                        ) : (
+                          bottom10ProjectsList.map((item, idx) => (
+                            <div key={idx} className="p-2.5 rounded-xl hover:bg-rose-50/30 transition-all flex items-center justify-between gap-3 border border-transparent hover:border-rose-100">
+                              <div className="flex items-start space-x-2.5 min-w-0">
+                                <span className="w-5 h-5 rounded-full bg-rose-100 text-rose-800 font-extrabold text-[10px] flex items-center justify-center shrink-0 mt-0.5">
+                                  {idx + 1}
+                                </span>
+                                <div className="min-w-0 space-y-0.5">
+                                  <div className="flex items-center space-x-1.5 flex-wrap">
+                                    {item.projectNumber && (
+                                      <span className="text-[9px] font-extrabold text-bni-teal bg-teal-50 px-1 py-0.2 rounded border border-teal-200/50">
+                                        {item.projectNumber}
+                                      </span>
+                                    )}
+                                    <span className="text-[9px] font-black uppercase text-rose-700 bg-rose-50 px-1 py-0.2 rounded">
+                                      {item.wilayah}
+                                    </span>
+                                  </div>
+                                  <h5 className="font-bold text-slate-800 text-xs truncate" title={item.namaProject}>
+                                    {item.namaProject || '-'}
+                                  </h5>
+                                  <p className="text-[10px] text-slate-400 truncate">
+                                    Alokasi EFS: <b className="text-blue-700 font-bold">{formatCompactIDR(item.aloEfs)}</b> • Realisasi: {formatCompactIDR(item.totalReal)}
+                                  </p>
+                                </div>
+                              </div>
+
+                              <div className="flex flex-col items-end shrink-0 space-y-1">
+                                <span className={`px-2 py-0.5 rounded-md font-black text-xs ${
+                                  item.pctRealisasi > 0 ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-500'
+                                }`}>
+                                  {item.pctRealisasi.toFixed(2)}%
+                                </span>
+                                <button
+                                  onClick={() => handleOpenDetailModal(item)}
+                                  className="text-[10px] font-bold text-bni-orange hover:underline flex items-center space-x-0.5"
+                                >
+                                  <span>Detail</span>
+                                  <i data-lucide="chevron-right" className="w-3 h-3"></i>
+                                </button>
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+
                   </div>
                 </>
               )}
 
-              {/* RAMPUNG & INFORMATIF TABLE */}
-              <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm flex flex-col justify-between overflow-hidden">
-                <div className="p-4 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <h4 className="font-bold text-slate-800 text-sm">
-                      {activeTab === 'overview' ? 'Daftar Realisasi Projects' : `Daftar Project: ${activeTab}`}
-                    </h4>
-                    <p className="text-[11px] text-slate-400">Klik header tabel untuk mengurutkan (sort) data. Hover pada nilai untuk melihat rupiah utuh.</p>
-                  </div>
-                  
-                  <div className="flex items-center space-x-3">
-                    <span className="text-xs font-bold text-bni-teal bg-bni-teal-subtle px-2.5 py-1 rounded-lg">
-                      {tableRows.length} Items
-                    </span>
-                  </div>
-                </div>
-
-                {/* BARIS FILTER TABEL */}
-                <div className="p-3 bg-slate-50/70 border-b border-slate-100 flex flex-wrap items-center gap-2.5">
-                  <div className="relative min-w-[180px] flex-1">
-                    <i data-lucide="search" className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5"></i>
-                    <input 
-                      type="text" 
-                      placeholder="Cari Nama / Project Number..." 
-                      value={tableSearchTerm}
-                      onChange={(e) => setTableSearchTerm(e.target.value)}
-                      className="w-full pl-8 pr-3 py-1 bg-white border border-slate-200 rounded-lg text-xs font-medium focus:outline-none focus:border-bni-teal transition-all shadow-sm"
-                    />
-                  </div>
-
-                  <div className="flex items-center bg-white border border-slate-200 rounded-lg px-2 py-1 shadow-sm">
-                    <span className="text-[10px] font-bold text-slate-400 mr-1">Wilayah:</span>
-                    <select 
-                      value={tableWilayahFilter} 
-                      onChange={(e) => setTableWilayahFilter(e.target.value)}
-                      className="bg-transparent text-slate-700 font-bold text-xs border-none focus:outline-none cursor-pointer max-w-[110px] truncate"
-                    >
-                      <option value="ALL">Semua</option>
-                      {wilayahList.map(w => (
-                        <option key={w} value={w}>{w}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="flex items-center bg-white border border-slate-200 rounded-lg px-2 py-1 shadow-sm">
-                    <span className="text-[10px] font-bold text-slate-400 mr-1">Anggaran:</span>
-                    <select 
-                      value={tableKategoriFilter} 
-                      onChange={(e) => setTableKategoriFilter(e.target.value)}
-                      className="bg-transparent text-slate-700 font-bold text-xs border-none focus:outline-none cursor-pointer max-w-[120px] truncate"
-                    >
-                      <option value="ALL">Semua</option>
-                      {kategoriList.map(c => (
-                        <option key={c} value={c}>{c}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="flex items-center bg-white border border-slate-200 rounded-lg px-2 py-1 shadow-sm">
-                    <span className="text-[10px] font-bold text-slate-400 mr-1">Proyek:</span>
-                    <select 
-                      value={tableStatusProjFilter} 
-                      onChange={(e) => setTableStatusProjFilter(e.target.value)}
-                      className="bg-transparent text-slate-700 font-bold text-xs border-none focus:outline-none cursor-pointer"
-                    >
-                      <option value="ALL">Semua</option>
-                      <option value="AKTIF">AKTIF</option>
-                      <option value="NON_AKTIF">NON AKTIF</option>
-                    </select>
-                  </div>
-
-                  <div className="flex items-center bg-white border border-slate-200 rounded-lg px-2 py-1 shadow-sm">
-                    <span className="text-[10px] font-bold text-slate-400 mr-1">ENP:</span>
-                    <select 
-                      value={tableStatusEnpFilter} 
-                      onChange={(e) => setTableStatusEnpFilter(e.target.value)}
-                      className="bg-transparent text-slate-700 font-bold text-xs border-none focus:outline-none cursor-pointer"
-                    >
-                      <option value="ALL">Semua</option>
-                      {statusEnpList.map(st => (
-                        <option key={st} value={st}>{st}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  {(tableSearchTerm || tableWilayahFilter !== 'ALL' || tableKategoriFilter !== 'ALL' || tableStatusProjFilter !== 'ALL' || tableStatusEnpFilter !== 'ALL' || sortConfig.key !== null) && (
-                    <button 
-                      onClick={resetTableFilters}
-                      className="text-[10px] font-bold text-rose-600 hover:text-rose-800 bg-rose-50 hover:bg-rose-100 px-2.5 py-1 rounded-lg transition-all flex items-center space-x-1"
-                    >
-                      <i data-lucide="rotate-ccw" className="w-3 h-3"></i>
-                      <span>Reset</span>
-                    </button>
-                  )}
-                </div>
-
-                {/* TABEL */}
-                <div className="overflow-x-auto custom-scrollbar flex-1">
-                  <table className="w-full text-left text-xs text-slate-600">
-                    <thead className="bg-slate-50/90 text-slate-500 font-extrabold uppercase text-[9px] tracking-wider border-b border-slate-200 select-none">
-                      <tr>
-                        <th onClick={() => handleSort('namaProject')} className="py-2.5 px-3 cursor-pointer hover:bg-slate-100 transition-colors">
-                          <div className="flex items-center space-x-1">
-                            <span>Project & Kategori</span>
-                            {renderSortIcon('namaProject')}
-                          </div>
-                        </th>
-                        <th onClick={() => handleSort('operatingUnit')} className="py-2.5 px-3 cursor-pointer hover:bg-slate-100 transition-colors">
-                          <div className="flex items-center space-x-1">
-                            <span>Unit Kerja / Unit</span>
-                            {renderSortIcon('operatingUnit')}
-                          </div>
-                        </th>
-                        {activeTab === 'Perabotan Non Otomasi' && (
-                          <th onClick={() => handleSort('qty')} className="py-2.5 px-2 text-center cursor-pointer hover:bg-slate-100 transition-colors">
-                            <div className="flex items-center justify-center space-x-1">
-                              <span>Qty</span>
-                              {renderSortIcon('qty')}
-                            </div>
-                          </th>
-                        )}
-                        <th onClick={() => handleSort('enpAwal')} className="py-2.5 px-2.5 text-right cursor-pointer hover:bg-slate-100 transition-colors">
-                          <div className="flex items-center justify-end space-x-1">
-                            <span>ENP Awal</span>
-                            {renderSortIcon('enpAwal')}
-                          </div>
-                        </th>
-                        <th onClick={() => handleSort('alokasiAwal')} className="py-2.5 px-2.5 text-right cursor-pointer hover:bg-slate-100 transition-colors">
-                          <div className="flex items-center justify-end space-x-1">
-                            <span>Alokasi Awal</span>
-                            {renderSortIcon('alokasiAwal')}
-                          </div>
-                        </th>
-                        <th onClick={() => handleSort('alokasiRevisiRbb')} className="py-2.5 px-2.5 text-right cursor-pointer hover:bg-slate-100 transition-colors">
-                          <div className="flex items-center justify-end space-x-1">
-                            <span>Revisi RBB</span>
-                            {renderSortIcon('alokasiRevisiRbb')}
-                          </div>
-                        </th>
-                        <th onClick={() => handleSort('alokasiEfs')} className="py-2.5 px-2.5 text-right cursor-pointer hover:bg-slate-100 transition-colors">
-                          <div className="flex items-center justify-end space-x-1">
-                            <span>Alokasi EFS</span>
-                            {renderSortIcon('alokasiEfs')}
-                          </div>
-                        </th>
-                        <th onClick={() => handleSort('realisasi')} className="py-2.5 px-2.5 text-right cursor-pointer hover:bg-slate-100 transition-colors">
-                          <div className="flex items-center justify-end space-x-1">
-                            <span>Realisasi</span>
-                            {renderSortIcon('realisasi')}
-                          </div>
-                        </th>
-                        <th onClick={() => handleSort('pctRealisasi')} className="py-2.5 px-2.5 text-right cursor-pointer hover:bg-slate-100 transition-colors bg-orange-50/50">
-                          <div className="flex items-center justify-end space-x-1 text-bni-orange">
-                            <span>% Realisasi</span>
-                            {renderSortIcon('pctRealisasi')}
-                          </div>
-                        </th>
-                        <th onClick={() => handleSort('statusProject')} className="py-2.5 px-3 text-center cursor-pointer hover:bg-slate-100 transition-colors">
-                          <div className="flex items-center justify-center space-x-1">
-                            <span>Status</span>
-                            {renderSortIcon('statusProject')}
-                          </div>
-                        </th>
-                        <th className="py-2.5 px-2 text-center">Aksi</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {loading ? (
-                        <tr>
-                          <td colSpan={totalColumns} className="py-10 text-center text-slate-400">
-                            <i data-lucide="loader-2" className="w-5 h-5 animate-spin mx-auto mb-2 text-bni-teal"></i>
-                            Memuat data dari Google Sheets...
-                          </td>
-                        </tr>
-                      ) : currentTableData.length === 0 ? (
-                        <tr>
-                          <td colSpan={totalColumns} className="py-10 text-center text-slate-400">
-                            Tidak ada data project yang sesuai.
-                          </td>
-                        </tr>
-                      ) : (
-                        currentTableData.map((row, idx) => {
-                          let rowTotal = 0;
-                          MONTHS.forEach(m => { rowTotal += Number(row[m.toLowerCase()]) || 0; });
-                          
-                          const aloEfs = Number(row.alokasiEfs) || 0;
-                          const pctReal = aloEfs > 0 ? (rowTotal / aloEfs) * 100 : 0;
-
-                          const isNonAktif = String(row.statusProject).toUpperCase() === 'NON AKTIF' || String(row.statusProject).toUpperCase() === 'DROPPED';
-                          const isPenyesuaianEnp = String(row.statusEnp || '').toUpperCase() === 'PENYESUAIAN';
-
-                          return (
-                            <tr key={idx} className="hover:bg-slate-50/80 transition-colors">
-                              <td className="py-2 px-3 max-w-[210px]">
-                                <div className="flex flex-col space-y-0.5">
-                                  <div className="flex items-center space-x-1.5">
-                                    {row.projectNumber && (
-                                      <span className="text-[9px] font-extrabold text-bni-teal bg-teal-50 px-1 py-0.2 rounded border border-teal-200/50">
-                                        {row.projectNumber}
-                                      </span>
-                                    )}
-                                  </div>
-                                  <span className="font-bold text-slate-800 truncate leading-tight" title={row.namaProject}>
-                                    {row.namaProject || '-'}
-                                  </span>
-                                  <span className="text-[10px] text-slate-400 font-medium truncate">
-                                    {row.kategori}
-                                  </span>
-                                </div>
-                              </td>
-
-                              <td className="py-2 px-3 max-w-[170px]">
-                                <div className="flex flex-col space-y-0.5">
-                                  <span className={`inline-block w-max px-1 py-0.2 rounded text-[8px] font-black uppercase ${
-                                    row.typeGroup === 'NSD' ? 'bg-indigo-100 text-indigo-800' : 'bg-teal-100 text-teal-800'
-                                  }`}>
-                                    {row.wilayah}
-                                  </span>
-                                  <span className="font-semibold text-slate-700 truncate text-[11px]" title={row.operatingUnit}>
-                                    {row.operatingUnit || '-'}
-                                  </span>
-                                </div>
-                              </td>
-
-                              {activeTab === 'Perabotan Non Otomasi' && (
-                                <td className="py-2 px-2 text-center font-bold text-slate-700 whitespace-nowrap">
-                                  <span className="bg-slate-100 px-1.5 py-0.5 rounded text-[11px]">
-                                    {new Intl.NumberFormat('id-ID').format(row.qty || 0)}
-                                  </span>
-                                </td>
-                              )}
-
-                              <td className="py-2 px-2.5 text-right font-medium text-slate-600 whitespace-nowrap text-[11px]" title={formatIDR(row.enpAwal)}>
-                                {formatSlimIDR(row.enpAwal)}
-                              </td>
-
-                              <td className="py-2 px-2.5 text-right font-medium text-slate-700 whitespace-nowrap text-[11px]" title={formatIDR(row.alokasiAwal)}>
-                                {formatSlimIDR(row.alokasiAwal)}
-                              </td>
-
-                              <td className="py-2 px-2.5 text-right font-medium text-amber-700 whitespace-nowrap text-[11px]" title={formatIDR(row.alokasiRevisiRbb)}>
-                                {formatSlimIDR(row.alokasiRevisiRbb)}
-                              </td>
-
-                              <td className="py-2 px-2.5 text-right font-semibold text-blue-700 whitespace-nowrap text-[11px]" title={formatIDR(row.alokasiEfs)}>
-                                {formatSlimIDR(row.alokasiEfs)}
-                              </td>
-
-                              <td className="py-2 px-2.5 text-right font-extrabold text-bni-orange whitespace-nowrap text-[11px]" title={formatIDR(rowTotal)}>
-                                {formatSlimIDR(rowTotal)}
-                              </td>
-
-                              <td className="py-2 px-2.5 text-right whitespace-nowrap text-[11px] bg-orange-50/30">
-                                {aloEfs > 0 ? (
-                                  <span className={`inline-block px-1.5 py-0.5 rounded font-black text-[10px] ${
-                                    pctReal >= 85 ? 'bg-emerald-100 text-emerald-800' :
-                                    pctReal >= 50 ? 'bg-amber-100 text-amber-800' :
-                                    pctReal > 0 ? 'bg-orange-100 text-orange-800' : 'bg-slate-100 text-slate-400'
-                                  }`}>
-                                    {pctReal.toFixed(2)}%
-                                  </span>
-                                ) : (
-                                  <span className="text-slate-300 font-normal">-</span>
-                                )}
-                              </td>
-
-                              <td className="py-2 px-3 text-center whitespace-nowrap">
-                                <div className="flex flex-col items-center space-y-0.5">
-                                  {isNonAktif ? (
-                                    <span className="px-1.5 py-0.2 rounded font-extrabold text-[8px] bg-rose-100 text-rose-700">
-                                      {row.statusProject || 'NON AKTIF'}
-                                    </span>
-                                  ) : (
-                                    <span className="px-1.5 py-0.2 rounded font-extrabold text-[8px] bg-emerald-100 text-emerald-700">
-                                      {row.statusProject || 'AKTIF'}
-                                    </span>
-                                  )}
-                                  
-                                  <span className={`px-1 py-0.2 rounded font-bold text-[8px] uppercase tracking-tighter ${
-                                    isPenyesuaianEnp 
-                                      ? 'bg-amber-100 text-amber-800 border border-amber-300' 
-                                      : 'text-slate-400'
-                                  }`}>
-                                    ENP: {row.statusEnp || 'OK'}
-                                  </span>
-                                </div>
-                              </td>
-
-                              <td className="py-2 px-2 text-center whitespace-nowrap">
-                                <button
-                                  onClick={() => handleOpenDetailModal(row)}
-                                  className="inline-flex items-center space-x-1 px-2 py-1 bg-bni-teal hover:bg-bni-teal-dark text-white rounded-md font-bold text-[10px] shadow-sm transition-all"
-                                  title="Lihat Detail & Input Realisasi"
-                                >
-                                  <i data-lucide="eye" className="w-3 h-3"></i>
-                                  <span>Detail</span>
-                                </button>
-                              </td>
-                            </tr>
-                          );
-                        })
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-
-                {/* PAGINASI HALAMAN */}
-                {!loading && tableRows.length > 0 && (
-                  <div className="p-3 border-t border-slate-100 bg-slate-50/50 flex flex-wrap items-center justify-between gap-3">
+              {/* TABEL DAFTAR REALISASI PROJECTS (SUB-MENU PROJECTS / KATEGORI) */}
+              {activeTab !== 'overview' && (
+                <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm flex flex-col justify-between overflow-hidden">
+                  <div className="p-4 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <h4 className="font-bold text-slate-800 text-sm">
+                        Daftar Project: {activeTab}
+                      </h4>
+                      <p className="text-[11px] text-slate-400">Klik header tabel untuk mengurutkan (sort) data. Hover pada nilai untuk melihat rupiah utuh.</p>
+                    </div>
+                    
                     <div className="flex items-center space-x-3">
-                      <div className="flex items-center space-x-1.5 text-xs text-slate-500 font-medium">
-                        <span>Baris:</span>
-                        <select 
-                          value={itemsPerPage} 
-                          onChange={(e) => setItemsPerPage(Number(e.target.value))}
-                          className="bg-white border border-slate-200 rounded px-1.5 py-0.5 font-bold text-slate-700 text-xs focus:outline-none focus:border-bni-teal cursor-pointer"
-                        >
-                          <option value={5}>5</option>
-                          <option value={10}>10</option>
-                          <option value={20}>20</option>
-                          <option value={50}>50</option>
-                          <option value={100}>100</option>
-                        </select>
-                      </div>
-
-                      <span className="text-[11px] text-slate-400 font-medium border-l pl-3 border-slate-200">
-                        <b className="text-slate-700">{(currentPage - 1) * itemsPerPage + 1}</b>-<b className="text-slate-700">{Math.min(currentPage * itemsPerPage, tableRows.length)}</b> dari <b className="text-bni-teal">{tableRows.length}</b>
+                      <span className="text-xs font-bold text-bni-teal bg-bni-teal-subtle px-2.5 py-1 rounded-lg">
+                        {tableRows.length} Items
                       </span>
                     </div>
-
-                    <div className="flex items-center space-x-1">
-                      <button
-                        onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
-                        disabled={currentPage === 1}
-                        className="px-2 py-1 rounded border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-white text-xs font-bold transition-all flex items-center space-x-0.5"
-                      >
-                        <i data-lucide="chevron-left" className="w-3.5 h-3.5"></i>
-                      </button>
-
-                      {pageNumbers.map((p, idx) => {
-                        if (p === '...') {
-                          return (
-                            <span key={`dots-${idx}`} className="px-1.5 py-0.5 text-slate-400 font-bold text-xs">
-                              ...
-                            </span>
-                          );
-                        }
-                        return (
-                          <button
-                            key={p}
-                            onClick={() => setCurrentPage(p)}
-                            className={`px-2.5 py-1 rounded text-xs font-extrabold transition-all ${
-                              currentPage === p
-                                ? 'bg-bni-teal text-white shadow-sm'
-                                : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'
-                            }`}
-                          >
-                            {p}
-                          </button>
-                        );
-                      })}
-
-                      <button
-                        onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
-                        disabled={currentPage === totalPages}
-                        className="px-2 py-1 rounded border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-white text-xs font-bold transition-all flex items-center space-x-0.5"
-                      >
-                        <i data-lucide="chevron-right" className="w-3.5 h-3.5"></i>
-                      </button>
-                    </div>
                   </div>
-                )}
 
-              </div>
+                  {/* BARIS FILTER TABEL */}
+                  <div className="p-3 bg-slate-50/70 border-b border-slate-100 flex flex-wrap items-center gap-2.5">
+                    <div className="relative min-w-[180px] flex-1">
+                      <i data-lucide="search" className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5"></i>
+                      <input 
+                        type="text" 
+                        placeholder="Cari Nama / Project Number..." 
+                        value={tableSearchTerm}
+                        onChange={(e) => setTableSearchTerm(e.target.value)}
+                        className="w-full pl-8 pr-3 py-1 bg-white border border-slate-200 rounded-lg text-xs font-medium focus:outline-none focus:border-bni-teal transition-all shadow-sm"
+                      />
+                    </div>
+
+                    <div className="flex items-center bg-white border border-slate-200 rounded-lg px-2 py-1 shadow-sm">
+                      <span className="text-[10px] font-bold text-slate-400 mr-1">Wilayah:</span>
+                      <select 
+                        value={tableWilayahFilter} 
+                        onChange={(e) => setTableWilayahFilter(e.target.value)}
+                        className="bg-transparent text-slate-700 font-bold text-xs border-none focus:outline-none cursor-pointer max-w-[110px] truncate"
+                      >
+                        <option value="ALL">Semua</option>
+                        {wilayahList.map(w => (
+                          <option key={w} value={w}>{w}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="flex items-center bg-white border border-slate-200 rounded-lg px-2 py-1 shadow-sm">
+                      <span className="text-[10px] font-bold text-slate-400 mr-1">Proyek:</span>
+                      <select 
+                        value={tableStatusProjFilter} 
+                        onChange={(e) => setTableStatusProjFilter(e.target.value)}
+                        className="bg-transparent text-slate-700 font-bold text-xs border-none focus:outline-none cursor-pointer"
+                      >
+                        <option value="ALL">Semua</option>
+                        <option value="AKTIF">AKTIF</option>
+                        <option value="NON_AKTIF">NON AKTIF</option>
+                      </select>
+                    </div>
+
+                    <div className="flex items-center bg-white border border-slate-200 rounded-lg px-2 py-1 shadow-sm">
+                      <span className="text-[10px] font-bold text-slate-400 mr-1">ENP:</span>
+                      <select 
+                        value={tableStatusEnpFilter} 
+                        onChange={(e) => setTableStatusEnpFilter(e.target.value)}
+                        className="bg-transparent text-slate-700 font-bold text-xs border-none focus:outline-none cursor-pointer"
+                      >
+                        <option value="ALL">Semua</option>
+                        {statusEnpList.map(st => (
+                          <option key={st} value={st}>{st}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {(tableSearchTerm || tableWilayahFilter !== 'ALL' || tableKategoriFilter !== 'ALL' || tableStatusProjFilter !== 'ALL' || tableStatusEnpFilter !== 'ALL' || sortConfig.key !== null) && (
+                      <button 
+                        onClick={resetTableFilters}
+                        className="text-[10px] font-bold text-rose-600 hover:text-rose-800 bg-rose-50 hover:bg-rose-100 px-2.5 py-1 rounded-lg transition-all flex items-center space-x-1"
+                      >
+                        <i data-lucide="rotate-ccw" className="w-3 h-3"></i>
+                        <span>Reset</span>
+                      </button>
+                    )}
+                  </div>
+
+                  {/* TABEL RAMPUNG */}
+                  <div className="overflow-x-auto custom-scrollbar flex-1">
+                    <table className="w-full text-left text-xs text-slate-600">
+                      <thead className="bg-slate-50/90 text-slate-500 font-extrabold uppercase text-[9px] tracking-wider border-b border-slate-200 select-none">
+                        <tr>
+                          <th onClick={() => handleSort('namaProject')} className="py-2.5 px-3 cursor-pointer hover:bg-slate-100 transition-colors">
+                            <div className="flex items-center space-x-1">
+                              <span>Project & Kategori</span>
+                              {renderSortIcon('namaProject')}
+                            </div>
+                          </th>
+                          <th onClick={() => handleSort('operatingUnit')} className="py-2.5 px-3 cursor-pointer hover:bg-slate-100 transition-colors">
+                            <div className="flex items-center space-x-1">
+                              <span>Unit Kerja / Unit</span>
+                              {renderSortIcon('operatingUnit')}
+                            </div>
+                          </th>
+                          {activeTab === 'Perabotan Non Otomasi' && (
+                            <th onClick={() => handleSort('qty')} className="py-2.5 px-2 text-center cursor-pointer hover:bg-slate-100 transition-colors">
+                              <div className="flex items-center justify-center space-x-1">
+                                <span>Qty</span>
+                                {renderSortIcon('qty')}
+                              </div>
+                            </th>
+                          )}
+                          <th onClick={() => handleSort('enpAwal')} className="py-2.5 px-2.5 text-right cursor-pointer hover:bg-slate-100 transition-colors">
+                            <div className="flex items-center justify-end space-x-1">
+                              <span>ENP Awal</span>
+                              {renderSortIcon('enpAwal')}
+                            </div>
+                          </th>
+                          <th onClick={() => handleSort('alokasiAwal')} className="py-2.5 px-2.5 text-right cursor-pointer hover:bg-slate-100 transition-colors">
+                            <div className="flex items-center justify-end space-x-1">
+                              <span>Alokasi Awal</span>
+                              {renderSortIcon('alokasiAwal')}
+                            </div>
+                          </th>
+                          <th onClick={() => handleSort('alokasiRevisiRbb')} className="py-2.5 px-2.5 text-right cursor-pointer hover:bg-slate-100 transition-colors">
+                            <div className="flex items-center justify-end space-x-1">
+                              <span>Revisi RBB</span>
+                              {renderSortIcon('alokasiRevisiRbb')}
+                            </div>
+                          </th>
+                          <th onClick={() => handleSort('alokasiEfs')} className="py-2.5 px-2.5 text-right cursor-pointer hover:bg-slate-100 transition-colors">
+                            <div className="flex items-center justify-end space-x-1">
+                              <span>Alokasi EFS</span>
+                              {renderSortIcon('alokasiEfs')}
+                            </div>
+                          </th>
+                          <th onClick={() => handleSort('realisasi')} className="py-2.5 px-2.5 text-right cursor-pointer hover:bg-slate-100 transition-colors">
+                            <div className="flex items-center justify-end space-x-1">
+                              <span>Realisasi</span>
+                              {renderSortIcon('realisasi')}
+                            </div>
+                          </th>
+                          <th onClick={() => handleSort('pctRealisasi')} className="py-2.5 px-2.5 text-right cursor-pointer hover:bg-slate-100 transition-colors bg-orange-50/50">
+                            <div className="flex items-center justify-end space-x-1 text-bni-orange">
+                              <span>% Realisasi</span>
+                              {renderSortIcon('pctRealisasi')}
+                            </div>
+                          </th>
+                          <th onClick={() => handleSort('statusProject')} className="py-2.5 px-3 text-center cursor-pointer hover:bg-slate-100 transition-colors">
+                            <div className="flex items-center justify-center space-x-1">
+                              <span>Status</span>
+                              {renderSortIcon('statusProject')}
+                            </div>
+                          </th>
+                          <th className="py-2.5 px-2 text-center">Aksi</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {loading ? (
+                          <tr>
+                            <td colSpan={totalColumns} className="py-10 text-center text-slate-400">
+                              <i data-lucide="loader-2" className="w-5 h-5 animate-spin mx-auto mb-2 text-bni-teal"></i>
+                              Memuat Database...
+                            </td>
+                          </tr>
+                        ) : currentTableData.length === 0 ? (
+                          <tr>
+                            <td colSpan={totalColumns} className="py-10 text-center text-slate-400">
+                              Tidak ada data project yang sesuai.
+                            </td>
+                          </tr>
+                        ) : (
+                          currentTableData.map((row, idx) => {
+                            let rowTotal = 0;
+                            MONTHS.forEach(m => { rowTotal += Number(row[m.toLowerCase()]) || 0; });
+                            
+                            const aloEfs = Number(row.alokasiEfs) || 0;
+                            const pctReal = aloEfs > 0 ? (rowTotal / aloEfs) * 100 : 0;
+
+                            const isNonAktif = String(row.statusProject).toUpperCase() === 'NON AKTIF' || String(row.statusProject).toUpperCase() === 'DROPPED';
+                            const isPenyesuaianEnp = String(row.statusEnp || '').toUpperCase() === 'PENYESUAIAN';
+
+                            return (
+                              <tr key={idx} className="hover:bg-slate-50/80 transition-colors">
+                                <td className="py-2 px-3 max-w-[210px]">
+                                  <div className="flex flex-col space-y-0.5">
+                                    <div className="flex items-center space-x-1.5">
+                                      {row.projectNumber && (
+                                        <span className="text-[9px] font-extrabold text-bni-teal bg-teal-50 px-1 py-0.2 rounded border border-teal-200/50">
+                                          {row.projectNumber}
+                                        </span>
+                                      )}
+                                    </div>
+                                    <span className="font-bold text-slate-800 truncate leading-tight" title={row.namaProject}>
+                                      {row.namaProject || '-'}
+                                    </span>
+                                    <span className="text-[10px] text-slate-400 font-medium truncate">
+                                      {row.kategori}
+                                    </span>
+                                  </div>
+                                </td>
+
+                                <td className="py-2 px-3 max-w-[170px]">
+                                  <div className="flex flex-col space-y-0.5">
+                                    <span className={`inline-block w-max px-1 py-0.2 rounded text-[8px] font-black uppercase ${
+                                      row.typeGroup === 'NSD' ? 'bg-indigo-100 text-indigo-800' : 'bg-teal-100 text-teal-800'
+                                    }`}>
+                                      {row.wilayah}
+                                    </span>
+                                    <span className="font-semibold text-slate-700 truncate text-[11px]" title={row.operatingUnit}>
+                                      {row.operatingUnit || '-'}
+                                    </span>
+                                  </div>
+                                </td>
+
+                                {activeTab === 'Perabotan Non Otomasi' && (
+                                  <td className="py-2 px-2 text-center font-bold text-slate-700 whitespace-nowrap">
+                                    <span className="bg-slate-100 px-1.5 py-0.5 rounded text-[11px]">
+                                      {new Intl.NumberFormat('id-ID').format(row.qty || 0)}
+                                    </span>
+                                  </td>
+                                )}
+
+                                <td className="py-2 px-2.5 text-right font-medium text-slate-600 whitespace-nowrap text-[11px]" title={formatIDR(row.enpAwal)}>
+                                  {formatSlimIDR(row.enpAwal)}
+                                </td>
+
+                                <td className="py-2 px-2.5 text-right font-medium text-slate-700 whitespace-nowrap text-[11px]" title={formatIDR(row.alokasiAwal)}>
+                                  {formatSlimIDR(row.alokasiAwal)}
+                                </td>
+
+                                <td className="py-2 px-2.5 text-right font-medium text-amber-700 whitespace-nowrap text-[11px]" title={formatIDR(row.alokasiRevisiRbb)}>
+                                  {formatSlimIDR(row.alokasiRevisiRbb)}
+                                </td>
+
+                                <td className="py-2 px-2.5 text-right font-semibold text-blue-700 whitespace-nowrap text-[11px]" title={formatIDR(row.alokasiEfs)}>
+                                  {formatSlimIDR(row.alokasiEfs)}
+                                </td>
+
+                                <td className="py-2 px-2.5 text-right font-extrabold text-bni-orange whitespace-nowrap text-[11px]" title={formatIDR(rowTotal)}>
+                                  {formatSlimIDR(rowTotal)}
+                                </td>
+
+                                <td className="py-2 px-2.5 text-right whitespace-nowrap text-[11px] bg-orange-50/30">
+                                  {aloEfs > 0 ? (
+                                    <span className={`inline-block px-1.5 py-0.5 rounded font-black text-[10px] ${
+                                      pctReal >= 85 ? 'bg-emerald-100 text-emerald-800' :
+                                      pctReal >= 50 ? 'bg-amber-100 text-amber-800' :
+                                      pctReal > 0 ? 'bg-orange-100 text-orange-800' : 'bg-slate-100 text-slate-400'
+                                    }`}>
+                                      {pctReal.toFixed(2)}%
+                                    </span>
+                                  ) : (
+                                    <span className="text-slate-300 font-normal">-</span>
+                                  )}
+                                </td>
+
+                                <td className="py-2 px-3 text-center whitespace-nowrap">
+                                  <div className="flex flex-col items-center space-y-0.5">
+                                    {isNonAktif ? (
+                                      <span className="px-1.5 py-0.2 rounded font-extrabold text-[8px] bg-rose-100 text-rose-700">
+                                        {row.statusProject || 'NON AKTIF'}
+                                      </span>
+                                    ) : (
+                                      <span className="px-1.5 py-0.2 rounded font-extrabold text-[8px] bg-emerald-100 text-emerald-700">
+                                        {row.statusProject || 'AKTIF'}
+                                      </span>
+                                    )}
+                                    
+                                    <span className={`px-1 py-0.2 rounded font-bold text-[8px] uppercase tracking-tighter ${
+                                      isPenyesuaianEnp 
+                                        ? 'bg-amber-100 text-amber-800 border border-amber-300' 
+                                        : 'text-slate-400'
+                                    }`}>
+                                      ENP: {row.statusEnp || 'OK'}
+                                    </span>
+                                  </div>
+                                </td>
+
+                                <td className="py-2 px-2 text-center whitespace-nowrap">
+                                  <button
+                                    onClick={() => handleOpenDetailModal(row)}
+                                    className="inline-flex items-center space-x-1 px-2 py-1 bg-bni-teal hover:bg-bni-teal-dark text-white rounded-md font-bold text-[10px] shadow-sm transition-all"
+                                    title="Lihat Detail & Input Realisasi"
+                                  >
+                                    <i data-lucide="eye" className="w-3 h-3"></i>
+                                    <span>Detail</span>
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          })
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* PAGINASI HALAMAN */}
+                  {!loading && tableRows.length > 0 && (
+                    <div className="p-3 border-t border-slate-100 bg-slate-50/50 flex flex-wrap items-center justify-between gap-3">
+                      <div className="flex items-center space-x-3">
+                        <div className="flex items-center space-x-1.5 text-xs text-slate-500 font-medium">
+                          <span>Baris:</span>
+                          <select 
+                            value={itemsPerPage} 
+                            onChange={(e) => setItemsPerPage(Number(e.target.value))}
+                            className="bg-white border border-slate-200 rounded px-1.5 py-0.5 font-bold text-slate-700 text-xs focus:outline-none focus:border-bni-teal cursor-pointer"
+                          >
+                            <option value={5}>5</option>
+                            <option value={10}>10</option>
+                            <option value={20}>20</option>
+                            <option value={50}>50</option>
+                            <option value={100}>100</option>
+                          </select>
+                        </div>
+
+                        <span className="text-[11px] text-slate-400 font-medium border-l pl-3 border-slate-200">
+                          <b className="text-slate-700">{(currentPage - 1) * itemsPerPage + 1}</b>-<b className="text-slate-700">{Math.min(currentPage * itemsPerPage, tableRows.length)}</b> dari <b className="text-bni-teal">{tableRows.length}</b>
+                        </span>
+                      </div>
+
+                      <div className="flex items-center space-x-1">
+                        <button
+                          onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                          disabled={currentPage === 1}
+                          className="px-2 py-1 rounded border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-white text-xs font-bold transition-all flex items-center space-x-0.5"
+                        >
+                          <i data-lucide="chevron-left" className="w-3.5 h-3.5"></i>
+                        </button>
+
+                        {pageNumbers.map((p, idx) => {
+                          if (p === '...') {
+                            return (
+                              <span key={`dots-${idx}`} className="px-1.5 py-0.5 text-slate-400 font-bold text-xs">
+                                ...
+                              </span>
+                            );
+                          }
+                          return (
+                            <button
+                              key={p}
+                              onClick={() => setCurrentPage(p)}
+                              className={`px-2.5 py-1 rounded text-xs font-extrabold transition-all ${
+                                currentPage === p
+                                  ? 'bg-bni-teal text-white shadow-sm'
+                                  : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'
+                              }`}
+                            >
+                              {p}
+                            </button>
+                          );
+                        })}
+
+                        <button
+                          onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                          disabled={currentPage === totalPages}
+                          className="px-2 py-1 rounded border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-white text-xs font-bold transition-all flex items-center space-x-0.5"
+                        >
+                          <i data-lucide="chevron-right" className="w-3.5 h-3.5"></i>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                </div>
+              )}
 
             </div>
           </main>
@@ -1726,7 +1947,7 @@
                           <i data-lucide="info" className="w-4 h-4 text-bni-teal"></i>
                           <span>1. Informasi Project</span>
                         </h4>
-                        <span className="text-[10px] font-semibold text-slate-400 bg-white px-2 py-0.5 rounded-full border border-slate-200">REALISASI_PROJECT Sheet</span>
+                        <span className="text-[10px] font-semibold text-slate-400 bg-white px-2 py-0.5 rounded-full border border-slate-200">Total Alokasi</span>
                       </div>
 
                       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
@@ -1906,13 +2127,13 @@
             );
           })()}
 
-          {/* RUNNING TEXT TICKER & FOOTER */}
+          {/* RUNNING TEXT TICKER DENGAN KECEPATAN DILAMBATKAN (85s) */}
           <footer className="fixed bottom-0 left-0 right-0 z-40 bg-slate-900 text-white shadow-2xl border-t border-slate-800 text-xs flex flex-col md:flex-row items-center justify-between overflow-hidden">
             
             <div className="flex-1 w-full overflow-hidden relative py-2.5 px-4 bg-slate-950 flex items-center">
               <div className="bg-bni-orange text-white text-[10px] font-black px-2 py-0.5 rounded uppercase tracking-wider mr-3 shrink-0 z-10 shadow-sm flex items-center space-x-1">
-                <i data-lucide="trending-up" className="w-3 h-3"></i>
-                <span>Highlight Highlights</span>
+                <i data-lucide="activity" className="w-3 h-3"></i>
+                <span>Summary Highlights</span>
               </div>
 
               <div className="overflow-hidden w-full relative">
@@ -1920,14 +2141,55 @@
                   {(() => {
                     const renderTickerContent = () => (
                       <>
-                        <div className="flex items-center space-x-4">
-                          <span className="font-extrabold text-emerald-400 uppercase tracking-wider text-[11px] flex items-center">
-                            🔥 Top 5 Realisasi:
+                        {/* 1. TOTAL ALOKASI EFS */}
+                        <div className="flex items-center space-x-2 bg-slate-900 border border-slate-800 px-3 py-1 rounded-lg">
+                          <span className="text-slate-400 text-[10px] uppercase font-bold">Total Alokasi EFS:</span>
+                          <span className="font-extrabold text-blue-400 text-xs">{formatCompactIDR(tickerStats.totalAlokasiEfs)}</span>
+                        </div>
+
+                        {/* 2. REALISASI KUMULATIF JAN S.D BULAN BERJALAN */}
+                        <div className="flex items-center space-x-2 bg-slate-900 border border-slate-800 px-3 py-1 rounded-lg">
+                          <span className="text-slate-400 text-[10px] uppercase font-bold">Realisasi (Jan - {tickerStats.currentMonthName}):</span>
+                          <span className="font-extrabold text-amber-400 text-xs">{formatCompactIDR(tickerStats.totalKumulatifBulanBerjalan)}</span>
+                        </div>
+
+                        {/* 3. % REALISASI TOTAL */}
+                        <div className="flex items-center space-x-2 bg-slate-900 border border-slate-800 px-3 py-1 rounded-lg">
+                          <span className="text-slate-400 text-[10px] uppercase font-bold">% Realisasi Total:</span>
+                          <span className="font-extrabold text-emerald-400 text-xs">{tickerStats.pctRealisasiTotal}%</span>
+                        </div>
+
+                        <span className="text-slate-700 font-black">|</span>
+
+                        {/* 4. PENYERAPAN PER WILAYAH */}
+                        <div className="flex items-center space-x-3">
+                          <span className="font-extrabold text-bni-orange uppercase tracking-wider text-[11px] flex items-center space-x-1">
+                            <span>📍 Realisasi Per Wilayah:</span>
                           </span>
-                          {top5Projects.map((proj, idx) => (
-                            <span key={`top-${idx}`} className="inline-flex items-center space-x-1.5 bg-slate-900 border border-slate-800 px-2.5 py-1 rounded-lg">
+                          {tickerStats.listWilayahPct.map((item, idx) => (
+                            <span key={`wil-${idx}`} className="inline-flex items-center space-x-1.5 bg-slate-900 border border-slate-800 px-2.5 py-1 rounded-lg">
+                              <span className="font-bold text-slate-300 text-[11px]">{item.wilayah}:</span>
+                              <span className={`font-black text-[11px] ${
+                                item.pct >= 85 ? 'text-emerald-400' :
+                                item.pct >= 50 ? 'text-amber-400' : 'text-rose-400'
+                              }`}>
+                                {item.pct.toFixed(2)}%
+                              </span>
+                            </span>
+                          ))}
+                        </div>
+
+                        <span className="text-slate-700 font-black">|</span>
+
+                        {/* 5. TOP 10 PROJECT HIGH PERFORMANCE */}
+                        <div className="flex items-center space-x-3">
+                          <span className="font-extrabold text-emerald-400 uppercase tracking-wider text-[11px] flex items-center space-x-1">
+                            <span>🔥 Top 10 High Performance:</span>
+                          </span>
+                          {top10ProjectsList.map((proj, idx) => (
+                            <span key={`top-tick-${idx}`} className="inline-flex items-center space-x-1.5 bg-slate-900 border border-slate-800 px-2.5 py-1 rounded-lg">
                               <span className="text-slate-400 font-bold text-[10px]">#{idx + 1}</span>
-                              <span className="font-bold text-slate-200 max-w-[140px] truncate" title={proj.namaProject}>
+                              <span className="font-bold text-slate-200 max-w-[130px] truncate" title={proj.namaProject}>
                                 [{proj.projectNumber || 'PROJ'}] {proj.namaProject}
                               </span>
                               <span className="text-emerald-400 font-black text-[11px] bg-emerald-950 px-1.5 py-0.5 rounded border border-emerald-800/50">
@@ -1939,14 +2201,15 @@
 
                         <span className="text-slate-700 font-black">|</span>
 
-                        <div className="flex items-center space-x-4">
-                          <span className="font-extrabold text-rose-400 uppercase tracking-wider text-[11px] flex items-center">
-                            ⚠️ Bottom 5 Realisasi:
+                        {/* 6. BOTTOM 10 PROJECT NEED ATTENTION */}
+                        <div className="flex items-center space-x-3">
+                          <span className="font-extrabold text-rose-400 uppercase tracking-wider text-[11px] flex items-center space-x-1">
+                            <span>⚠️ Bottom 10 Need Attention:</span>
                           </span>
-                          {bottom5Projects.map((proj, idx) => (
-                            <span key={`bottom-${idx}`} className="inline-flex items-center space-x-1.5 bg-slate-900 border border-slate-800 px-2.5 py-1 rounded-lg">
+                          {bottom10ProjectsList.map((proj, idx) => (
+                            <span key={`bot-tick-${idx}`} className="inline-flex items-center space-x-1.5 bg-slate-900 border border-slate-800 px-2.5 py-1 rounded-lg">
                               <span className="text-slate-400 font-bold text-[10px]">#{idx + 1}</span>
-                              <span className="font-bold text-slate-200 max-w-[140px] truncate" title={proj.namaProject}>
+                              <span className="font-bold text-slate-200 max-w-[130px] truncate" title={proj.namaProject}>
                                 [{proj.projectNumber || 'PROJ'}] {proj.namaProject}
                               </span>
                               <span className="text-rose-400 font-black text-[11px] bg-rose-950 px-1.5 py-0.5 rounded border border-rose-800/50">
