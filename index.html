@@ -16,6 +16,12 @@
   <!-- Lucide Icons -->
   <script src="https://unpkg.com/lucide@latest"></script>
   
+  <!-- SheetJS (XLSX) untuk Export Excel -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <!-- jsPDF & AutoTable untuk Export PDF -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
+
   <script>
     tailwind.config = {
       theme: {
@@ -46,7 +52,6 @@
       0% { transform: translateX(0%); }
       100% { transform: translateX(-50%); }
     }
-    /* KECEPATAN ANIMAIS DIPERLAMBAT DARI 55s MENJADI 85s */
     .animate-marquee {
       display: flex;
       width: max-content;
@@ -122,16 +127,25 @@
       );
     };
 
-    // KOMPONEN HEATMAP MATRIX
-    const HeatmapMatrix = ({ data, categories, wilayahs, type = 'efs' }) => {
-      const matrixData = useMemo(() => {
+    const HeatmapMatrix = ({ data, categories, wilayahs, type = 'efs', reportMonth = 'Des' }) => {
+      const { matrixData, colTotals, rowTotals, grandTotal } = useMemo(() => {
         const matrix = {};
+        const colTot = {};
+        const rowTot = {};
+        
+        categories.forEach(c => {
+          colTot[c] = { alokasiEfs: 0, realisasi: 0 };
+        });
+
         wilayahs.forEach(w => {
           matrix[w] = {};
+          rowTot[w] = { alokasiEfs: 0, realisasi: 0 };
           categories.forEach(c => {
             matrix[w][c] = { alokasiEfs: 0, realisasi: 0 };
           });
         });
+
+        let grandTot = { alokasiEfs: 0, realisasi: 0 };
 
         data.forEach(row => {
           const w = row.wilayah;
@@ -145,17 +159,38 @@
           else if (cat.toLowerCase().includes('kendaraan')) matchedCat = "Kendaraan";
 
           if (w && matchedCat && matrix[w] && matrix[w][matchedCat]) {
-            const efs = Number(row.alokasiEfs) || 0;
-            let real = 0;
-            MONTHS.forEach(m => { real += Number(row[m.toLowerCase()]) || 0; });
+            const mKey = reportMonth.toLowerCase();
+            const efs = Number(row[`efs_${mKey}`]) !== undefined ? Number(row[`efs_${mKey}`]) : (Number(row.alokasiEfs) || 0);
+            
+            const targetMonthIdx = MONTHS.indexOf(reportMonth);
+            let kumulatifReal = 0;
+            for (let i = 0; i <= targetMonthIdx; i++) {
+              kumulatifReal += Number(row[MONTHS[i].toLowerCase()]) || 0;
+            }
+            const valMonthVal = Number(row[mKey]) || 0;
+            const real = valMonthVal > kumulatifReal ? valMonthVal : kumulatifReal;
 
             matrix[w][matchedCat].alokasiEfs += efs;
             matrix[w][matchedCat].realisasi += real;
+
+            rowTot[w].alokasiEfs += efs;
+            rowTot[w].realisasi += real;
+
+            colTot[matchedCat].alokasiEfs += efs;
+            colTot[matchedCat].realisasi += real;
+
+            grandTot.alokasiEfs += efs;
+            grandTot.realisasi += real;
           }
         });
 
-        return matrix;
-      }, [data, categories, wilayahs]);
+        return { 
+          matrixData: matrix, 
+          colTotals: colTot, 
+          rowTotals: rowTot, 
+          grandTotal: grandTot 
+        };
+      }, [data, categories, wilayahs, reportMonth]);
 
       const getBgStylePct = (pct) => {
         if (pct === 0) return { backgroundColor: '#F8FAFC', color: '#94A3B8' };
@@ -186,50 +221,108 @@
         return max;
       }, [matrixData, wilayahs, categories]);
 
+      const grandPct = grandTotal.alokasiEfs > 0 
+        ? (grandTotal.realisasi / grandTotal.alokasiEfs) * 100 
+        : 0;
+
       return (
-        <div className="overflow-x-auto custom-scrollbar">
-          <table className="w-full text-center border-collapse">
+        <div className="w-full overflow-hidden">
+          <table className="w-full text-center border-collapse table-fixed">
             <thead>
               <tr>
-                <th className="p-2 text-[10px] font-extrabold text-slate-400 bg-slate-50 border border-slate-200 text-left">Wilayah</th>
+                <th className="p-1.5 text-[9px] font-extrabold text-slate-400 bg-slate-50 border border-slate-200 text-left w-[18%]">Wilayah</th>
                 {categories.map(c => (
-                  <th key={c} className="p-2 text-[9px] font-extrabold text-slate-600 bg-slate-50 border border-slate-200 min-w-[90px]">
+                  <th key={c} className="p-1 text-[8px] font-extrabold text-slate-600 bg-slate-50 border border-slate-200 leading-tight">
                     {c}
                   </th>
                 ))}
+                <th className="p-1 text-[8px] font-black text-slate-800 bg-slate-200 border border-slate-300 w-[15%]">
+                  Total
+                </th>
               </tr>
             </thead>
             <tbody>
-              {wilayahs.map(w => (
-                <tr key={w}>
-                  <td className="p-2 text-[10px] font-bold text-slate-700 bg-slate-50 border border-slate-200 text-left whitespace-nowrap">
-                    {w}
-                  </td>
-                  {categories.map(c => {
-                    const item = matrixData[w] ? matrixData[w][c] : { alokasiEfs: 0, realisasi: 0 };
-                    const pct = item.alokasiEfs > 0 ? (item.realisasi / item.alokasiEfs) * 100 : 0;
-                    
-                    const style = type === 'pct' 
-                      ? getBgStylePct(pct) 
-                      : getBgStyleEfs(item.alokasiEfs, maxEfsVal);
+              {wilayahs.map(w => {
+                const rowItem = rowTotals[w] || { alokasiEfs: 0, realisasi: 0 };
+                const rowPct = rowItem.alokasiEfs > 0 ? (rowItem.realisasi / rowItem.alokasiEfs) * 100 : 0;
 
-                    return (
-                      <td 
-                        key={c} 
-                        style={style} 
-                        className="p-2 border border-slate-200 text-[10px] font-extrabold transition-all hover:scale-105 cursor-default"
-                        title={`${w} - ${c}\nAlokasi EFS: ${formatIDR(item.alokasiEfs)}\nRealisasi: ${formatIDR(item.realisasi)}\n% Realisasi: ${pct.toFixed(2)}%`}
-                      >
-                        {type === 'pct' ? (
-                          item.alokasiEfs > 0 ? `${pct.toFixed(1)}%` : '-'
-                        ) : (
-                          item.alokasiEfs > 0 ? formatCompactIDR(item.alokasiEfs) : '-'
-                        )}
-                      </td>
-                    );
-                  })}
-                </tr>
-              ))}
+                return (
+                  <tr key={w}>
+                    <td className="p-1 text-[9px] font-bold text-slate-700 bg-slate-50 border border-slate-200 text-left truncate" title={w}>
+                      {w}
+                    </td>
+                    {categories.map(c => {
+                      const item = matrixData[w] ? matrixData[w][c] : { alokasiEfs: 0, realisasi: 0 };
+                      const pct = item.alokasiEfs > 0 ? (item.realisasi / item.alokasiEfs) * 100 : 0;
+                      
+                      const style = type === 'pct' 
+                        ? getBgStylePct(pct) 
+                        : getBgStyleEfs(item.alokasiEfs, maxEfsVal);
+
+                      return (
+                        <td 
+                          key={c} 
+                          style={style} 
+                          className="p-1 border border-slate-200 text-[8px] font-extrabold transition-all hover:scale-105 cursor-default truncate"
+                          title={`${w} - ${c}\nAlokasi EFS: ${formatIDR(item.alokasiEfs)}\nRealisasi: ${formatIDR(item.realisasi)}\n% Realisasi: ${pct.toFixed(2)}%`}
+                        >
+                          {type === 'pct' ? (
+                            item.alokasiEfs > 0 ? `${pct.toFixed(2)}%` : '-'
+                          ) : (
+                            item.alokasiEfs > 0 ? formatCompactIDR(item.alokasiEfs) : '-'
+                          )}
+                        </td>
+                      );
+                    })}
+
+                    <td 
+                      className="p-1 border border-slate-300 bg-slate-100 text-slate-800 text-[8px] font-black cursor-default truncate"
+                      title={`Total ${w}\nAlokasi EFS: ${formatIDR(rowItem.alokasiEfs)}\nRealisasi: ${formatIDR(rowItem.realisasi)}\n% Realisasi: ${rowPct.toFixed(2)}%`}
+                    >
+                      {type === 'pct' ? (
+                        rowItem.alokasiEfs > 0 ? `${rowPct.toFixed(2)}%` : '-'
+                      ) : (
+                        rowItem.alokasiEfs > 0 ? formatCompactIDR(rowItem.alokasiEfs) : '-'
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+
+              <tr className="border-t-2 border-slate-400">
+                <td className="p-1 text-[9px] font-black text-slate-800 bg-slate-200 border border-slate-300 text-left truncate">
+                  Total
+                </td>
+                {categories.map(c => {
+                  const colItem = colTotals[c] || { alokasiEfs: 0, realisasi: 0 };
+                  const colPct = colItem.alokasiEfs > 0 ? (colItem.realisasi / colItem.alokasiEfs) * 100 : 0;
+
+                  return (
+                    <td 
+                      key={`tot-${c}`} 
+                      className="p-1 border border-slate-300 bg-slate-100 text-slate-800 text-[8px] font-black cursor-default truncate"
+                      title={`Total Kategori ${c}\nAlokasi EFS: ${formatIDR(colItem.alokasiEfs)}\nRealisasi: ${formatIDR(colItem.realisasi)}\n% Realisasi: ${colPct.toFixed(2)}%`}
+                    >
+                      {type === 'pct' ? (
+                        colItem.alokasiEfs > 0 ? `${colPct.toFixed(2)}%` : '-'
+                      ) : (
+                        colItem.alokasiEfs > 0 ? formatCompactIDR(colItem.alokasiEfs) : '-'
+                      )}
+                    </td>
+                  );
+                })}
+
+                <td 
+                  className="p-1 border border-slate-400 bg-slate-300 text-slate-900 text-[8px] font-black cursor-default truncate"
+                  title={`GRAND TOTAL\nAlokasi EFS: ${formatIDR(grandTotal.alokasiEfs)}\nRealisasi: ${formatIDR(grandTotal.realisasi)}\n% Realisasi: ${grandPct.toFixed(2)}%`}
+                >
+                  {type === 'pct' ? (
+                    grandTotal.alokasiEfs > 0 ? `${grandPct.toFixed(2)}%` : '-'
+                  ) : (
+                    grandTotal.alokasiEfs > 0 ? formatCompactIDR(grandTotal.alokasiEfs) : '-'
+                  )}
+                </td>
+              </tr>
             </tbody>
           </table>
         </div>
@@ -336,7 +429,7 @@
             <div className="flex items-center justify-between pb-1 border-b mb-2 border-slate-100">
               <span className="text-xs font-extrabold text-bni-teal flex items-center space-x-1">
                 <i data-lucide="bar-chart-2" className="w-3.5 h-3.5"></i>
-                <span>Alokasi (Kolom K)</span>
+                <span>Alokasi (EFS)</span>
               </span>
               <span className="text-[9px] font-bold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">Mirror Left</span>
             </div>
@@ -432,6 +525,549 @@
       );
     };
 
+    // KOMPONEN HISTORICAL ANALYSIS VIEW (DIPERBAIKI UNTUK KALKULASI KUMULATIF)
+    const HistoricalAnalysisView = ({ data }) => {
+      const [m1, setM1] = useState('Jun');
+      const [m2, setM2] = useState('Jul');
+      const [searchQuery, setSearchQuery] = useState('');
+      const [diffFilter, setDynamicDiffFilter] = useState('ALL');
+      const [histSortConfig, setHistSortConfig] = useState({ key: null, direction: 'asc' });
+      
+      const canvasHistRef = useRef(null);
+      const chartHistRef = useRef(null);
+
+      // Monthly Kumulatif Aggregates
+      const monthlySummary = useMemo(() => {
+        const result = MONTHS.map((m, mIdx) => {
+          const key = m.toLowerCase();
+          let efsTot = 0;
+          let realTot = 0;
+
+          data.forEach(item => {
+            efsTot += Number(item[`efs_${key}`]) !== undefined ? Number(item[`efs_${key}`]) : (Number(item.alokasiEfs) || 0);
+            
+            // Hitung kumulatif Jan s/d Bulan m
+            let kumulatifRowReal = 0;
+            for (let i = 0; i <= mIdx; i++) {
+              kumulatifRowReal += Number(item[MONTHS[i].toLowerCase()]) || 0;
+            }
+            const valMonthVal = Number(item[key]) || 0;
+            realTot += (valMonthVal > kumulatifRowReal ? valMonthVal : kumulatifRowReal);
+          });
+
+          const pct = efsTot > 0 ? (realTot / efsTot) * 100 : 0;
+          return { month: m, alokasi: efsTot, realisasi: realTot, pct };
+        });
+
+        return result;
+      }, [data]);
+
+      useEffect(() => {
+        if (!canvasHistRef.current) return;
+        const ctx = canvasHistRef.current.getContext('2d');
+        if (chartHistRef.current) chartHistRef.current.destroy();
+
+        chartHistRef.current = new Chart(ctx, {
+          type: 'bar',
+          data: {
+            labels: monthlySummary.map(d => d.month),
+            datasets: [
+              {
+                type: 'line',
+                label: '% Realisasi vs EFS',
+                data: monthlySummary.map(d => d.pct),
+                borderColor: '#F15A24',
+                backgroundColor: '#F15A24',
+                borderWidth: 3,
+                yAxisID: 'y1',
+                tension: 0.3
+              },
+              {
+                type: 'bar',
+                label: 'Alokasi EFS Bulanan',
+                data: monthlySummary.map(d => d.alokasi),
+                backgroundColor: '#006666',
+                borderRadius: 4,
+                yAxisID: 'y'
+              },
+              {
+                type: 'bar',
+                label: 'Realisasi Kumulatif Bulanan',
+                data: monthlySummary.map(d => d.realisasi),
+                backgroundColor: '#0D9488',
+                borderRadius: 4,
+                yAxisID: 'y'
+              }
+            ]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            scales: {
+              y: {
+                type: 'linear',
+                display: true,
+                position: 'left',
+                ticks: {
+                  callback: (val) => val >= 1e9 ? `${(val/1e9).toFixed(1)}M` : val >= 1e6 ? `${(val/1e6).toFixed(0)}Jt` : val
+                },
+                grid: { color: '#F1F5F9' }
+              },
+              y1: {
+                type: 'linear',
+                display: true,
+                position: 'right',
+                ticks: { callback: (val) => `${val.toFixed(0)}%` },
+                grid: { drawOnChartArea: false }
+              }
+            }
+          }
+        });
+
+        return () => { if (chartHistRef.current) chartHistRef.current.destroy(); };
+      }, [monthlySummary]);
+
+      const handleHistSort = (key) => {
+        let direction = 'asc';
+        if (histSortConfig.key === key && histSortConfig.direction === 'asc') {
+          direction = 'desc';
+        }
+        setHistSortConfig({ key, direction });
+      };
+
+      const renderHistSortIcon = (columnKey) => {
+        if (histSortConfig.key !== columnKey) {
+          return <span className="ml-1 text-slate-300 hover:text-slate-500">↕</span>;
+        }
+        return histSortConfig.direction === 'asc' 
+          ? <span className="ml-1 text-bni-teal font-extrabold">▲</span> 
+          : <span className="ml-1 text-bni-teal font-extrabold">▼</span>;
+      };
+
+      // Projects Variance comparison M1 vs M2 dengan kalkulasi kumulatif
+      const varianceData = useMemo(() => {
+        const idx1 = MONTHS.indexOf(m1);
+        const idx2 = MONTHS.indexOf(m2);
+
+        const k1 = m1.toLowerCase();
+        const k2 = m2.toLowerCase();
+
+        let list = data.map(item => {
+          const efs1 = Number(item[`efs_${k1}`]) !== undefined ? Number(item[`efs_${k1}`]) : (Number(item.alokasiEfs) || 0);
+          const efs2 = Number(item[`efs_${k2}`]) !== undefined ? Number(item[`efs_${k2}`]) : (Number(item.alokasiEfs) || 0);
+          const diffEfs = efs2 - efs1;
+
+          // Realisasi Kumulatif M1
+          let kumulatifReal1 = 0;
+          for (let i = 0; i <= idx1; i++) {
+            kumulatifReal1 += Number(item[MONTHS[i].toLowerCase()]) || 0;
+          }
+          const val1 = Number(item[k1]) || 0;
+          const real1 = val1 > kumulatifReal1 ? val1 : kumulatifReal1;
+
+          // Realisasi Kumulatif M2
+          let kumulatifReal2 = 0;
+          for (let i = 0; i <= idx2; i++) {
+            kumulatifReal2 += Number(item[MONTHS[i].toLowerCase()]) || 0;
+          }
+          const val2 = Number(item[k2]) || 0;
+          const real2 = val2 > kumulatifReal2 ? val2 : kumulatifReal2;
+
+          const diffReal = real2 - real1;
+
+          return {
+            ...item,
+            efs1,
+            efs2,
+            diffEfs,
+            real1,
+            real2,
+            diffReal
+          };
+        });
+
+        list = list.filter(item => {
+          if (searchQuery) {
+            const q = searchQuery.toLowerCase();
+            const matchName = (item.namaProject || '').toLowerCase().includes(q);
+            const matchNum = (item.projectNumber || '').toLowerCase().includes(q);
+            const matchWil = (item.wilayah || '').toLowerCase().includes(q);
+            if (!matchName && !matchNum && !matchWil) return false;
+          }
+
+          if (diffFilter === 'CHANGED') return item.diffEfs !== 0 || item.diffReal !== 0;
+          if (diffFilter === 'INCREASED') return item.diffEfs > 0;
+          if (diffFilter === 'DECREASED') return item.diffEfs < 0;
+
+          return true;
+        });
+
+        if (histSortConfig.key !== null) {
+          list.sort((a, b) => {
+            let aVal = a[histSortConfig.key];
+            let bVal = b[histSortConfig.key];
+
+            if (aVal === undefined || aVal === null) aVal = '';
+            if (bVal === undefined || bVal === null) bVal = '';
+
+            if (typeof aVal === 'string') aVal = aVal.toLowerCase();
+            if (typeof bVal === 'string') bVal = bVal.toLowerCase();
+
+            if (aVal < bVal) return histSortConfig.direction === 'asc' ? -1 : 1;
+            if (aVal > bVal) return histSortConfig.direction === 'asc' ? 1 : -1;
+            return 0;
+          });
+        }
+
+        return list;
+      }, [data, m1, m2, searchQuery, diffFilter, histSortConfig]);
+
+      const varianceStats = useMemo(() => {
+        let totEfs1 = 0, totEfs2 = 0, totReal1 = 0, totReal2 = 0;
+        let changedCount = 0;
+
+        varianceData.forEach(i => {
+          totEfs1 += i.efs1;
+          totEfs2 += i.efs2;
+          totReal1 += i.real1;
+          totReal2 += i.real2;
+          if (i.diffEfs !== 0) changedCount++;
+        });
+
+        return {
+          totEfs1, totEfs2, diffEfs: totEfs2 - totEfs1,
+          totReal1, totReal2, diffReal: totReal2 - totReal1,
+          changedCount
+        };
+      }, [varianceData]);
+
+      const exportHistToExcel = () => {
+        const rows = varianceData.map((row, index) => ({
+          "No": index + 1,
+          "Project Number": row.projectNumber || '-',
+          "Nama Project": row.namaProject || '-',
+          "Wilayah": row.wilayah || '-',
+          "Operating Unit": row.operatingUnit || '-',
+          [`Alokasi EFS (${m1})`]: row.efs1,
+          [`Alokasi EFS (${m2})`]: row.efs2,
+          "Selisih EFS": row.diffEfs,
+          [`Realisasi (${m1})`]: row.real1,
+          [`Realisasi (${m2})`]: row.real2,
+          "Selisih Realisasi": row.diffReal
+        }));
+
+        const worksheet = XLSX.utils.json_to_sheet(rows);
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, "Historical_Variance");
+        XLSX.writeFile(workbook, `Report_Historical_Variance_${m1}_vs_${m2}.xlsx`);
+      };
+
+      const exportHistToPDF = () => {
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF('l', 'mm', 'a4');
+
+        doc.setFontSize(14);
+        doc.text(`Laporan Historical & Variance Analysis (${m1} vs ${m2})`, 14, 15);
+        doc.setFontSize(9);
+        doc.text(`Tanggal Cetak: ${new Date().toLocaleDateString('id-ID')}`, 14, 21);
+
+        const tableColumn = ["No", "Project Number", "Nama Project", "Wilayah", `EFS (${m1})`, `EFS (${m2})`, "Selisih EFS", `Real (${m1})`, `Real (${m2})`, "Selisih Real"];
+        const tableRows = varianceData.map((row, index) => [
+          index + 1,
+          row.projectNumber || '-',
+          row.namaProject || '-',
+          row.wilayah || '-',
+          formatCompactIDR(row.efs1),
+          formatCompactIDR(row.efs2),
+          formatCompactIDR(row.diffEfs),
+          formatCompactIDR(row.real1),
+          formatCompactIDR(row.real2),
+          formatCompactIDR(row.diffReal)
+        ]);
+
+        doc.autoTable({
+          head: [tableColumn],
+          body: tableRows,
+          startY: 25,
+          styles: { fontSize: 8, cellPadding: 2 },
+          headStyles: { fillColor: [0, 102, 102], textColor: 255, fontStyle: 'bold' },
+          alternateRowStyles: { fillColor: [245, 247, 250] }
+        });
+
+        doc.save(`Report_Historical_Variance_${m1}_vs_${m2}.pdf`);
+      };
+
+      return (
+        <div className="space-y-6 animate-fadeIn">
+          <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm space-y-3">
+            <div className="flex items-center justify-between border-b pb-3 border-slate-100">
+              <div>
+                <h4 className="font-extrabold text-slate-800 text-sm flex items-center space-x-2">
+                  <i data-lucide="line-chart" className="w-4 h-4 text-bni-teal"></i>
+                  <span>Tren Historical Alokasi EFS vs Realisasi Kumulatif Bulanan</span>
+                </h4>
+                <p className="text-xs text-slate-400">Monitoring pergerakan dinamis alokasi anggaran investasi dan tingkat penyerapan kumulatif per bulan</p>
+              </div>
+              <span className="text-[10px] font-bold text-bni-teal bg-bni-teal-subtle px-2.5 py-1 rounded-full">Jan - Des 2026</span>
+            </div>
+
+            <div className="h-72 w-full relative">
+              <canvas ref={canvasHistRef}></canvas>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm flex flex-col overflow-hidden max-h-[650px]">
+            <div className="p-5 border-b border-slate-100 flex flex-wrap items-center justify-between gap-4 bg-slate-50/50">
+              <div>
+                <h4 className="font-extrabold text-slate-800 text-sm flex items-center space-x-2">
+                  <i data-lucide="git-compare" className="w-4 h-4 text-bni-orange"></i>
+                  <span>Perbandingan & Rincian Perubahan Alokasi EFS Per Bulan</span>
+                </h4>
+                <p className="text-xs text-slate-400">Lakukan komparasi pergerakan alokasi & realisasi proyek antar dua bulan pilihan</p>
+              </div>
+
+              <div className="flex items-center space-x-3 bg-white p-1.5 rounded-xl border border-slate-200 shadow-sm">
+                <div className="flex items-center space-x-1.5">
+                  <span className="text-xs font-bold text-slate-500 pl-1">Bulan A:</span>
+                  <select 
+                    value={m1} 
+                    onChange={e => setM1(e.target.value)}
+                    className="bg-slate-100 font-bold text-xs text-slate-700 py-1 px-2 rounded-lg border-none focus:outline-none cursor-pointer"
+                  >
+                    {MONTHS.map(m => <option key={m} value={m}>{m}</option>)}
+                  </select>
+                </div>
+
+                <i data-lucide="arrow-right" className="w-4 h-4 text-slate-400"></i>
+
+                <div className="flex items-center space-x-1.5">
+                  <span className="text-xs font-bold text-slate-500">Bulan B:</span>
+                  <select 
+                    value={m2} 
+                    onChange={e => setM2(e.target.value)}
+                    className="bg-slate-100 font-bold text-xs text-slate-700 py-1 px-2 rounded-lg border-none focus:outline-none cursor-pointer"
+                  >
+                    {MONTHS.map(m => <option key={m} value={m}>{m}</option>)}
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-5 grid grid-cols-1 md:grid-cols-3 gap-4 bg-slate-100/40 border-b border-slate-100">
+              <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm">
+                <span className="text-[10px] font-bold text-slate-400 uppercase block">Total Alokasi EFS ({m1} vs {m2})</span>
+                <div className="flex items-baseline space-x-2 mt-1">
+                  <span className="text-lg font-black text-slate-800">{formatCompactIDR(varianceStats.totEfs2)}</span>
+                  <span className={`text-xs font-extrabold ${varianceStats.diffEfs >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                    ({varianceStats.diffEfs >= 0 ? '+' : ''}{formatCompactIDR(varianceStats.diffEfs)})
+                  </span>
+                </div>
+                <span className="text-[10px] text-slate-400 block mt-0.5">Semula {m1}: {formatCompactIDR(varianceStats.totEfs1)}</span>
+              </div>
+
+              <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm">
+                <span className="text-[10px] font-bold text-slate-400 uppercase block">Total Realisasi Kumulatif ({m1} vs {m2})</span>
+                <div className="flex items-baseline space-x-2 mt-1">
+                  <span className="text-lg font-black text-bni-orange">{formatCompactIDR(varianceStats.totReal2)}</span>
+                  <span className={`text-xs font-extrabold ${varianceStats.diffReal >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                    ({varianceStats.diffReal >= 0 ? '+' : ''}{formatCompactIDR(varianceStats.diffReal)})
+                  </span>
+                </div>
+                <span className="text-[10px] text-slate-400 block mt-0.5">Semula {m1}: {formatCompactIDR(varianceStats.totReal1)}</span>
+              </div>
+
+              <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between">
+                <span className="text-[10px] font-bold text-slate-400 uppercase block">Proyek Mengalami Penyesuaian</span>
+                <div className="flex items-center justify-between mt-1">
+                  <span className="text-xl font-black text-bni-teal">{varianceStats.changedCount} Project</span>
+                  <span className="text-[10px] font-bold bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full">Revisi EFS</span>
+                </div>
+                <span className="text-[10px] text-slate-400 block">EFS {m1} vs {m2}</span>
+              </div>
+            </div>
+
+            <div className="p-3 bg-white border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
+              <div className="relative min-w-[220px]">
+                <i data-lucide="search" className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5"></i>
+                <input 
+                  type="text" 
+                  placeholder="Cari Proyek / Wilayah..." 
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                  className="w-full pl-8 pr-3 py-1 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium focus:outline-none focus:border-bni-teal"
+                />
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-bold text-slate-400 mr-1">Filter Perubahan:</span>
+                <button 
+                  onClick={() => setDynamicDiffFilter('ALL')}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${diffFilter === 'ALL' ? 'bg-bni-teal text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                >
+                  Semua
+                </button>
+                <button 
+                  onClick={() => setDynamicDiffFilter('CHANGED')}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${diffFilter === 'CHANGED' ? 'bg-bni-orange text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                >
+                  Berubah
+                </button>
+                <button 
+                  onClick={() => setDynamicDiffFilter('INCREASED')}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${diffFilter === 'INCREASED' ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                >
+                  Naik
+                </button>
+                <button 
+                  onClick={() => setDynamicDiffFilter('DECREASED')}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${diffFilter === 'DECREASED' ? 'bg-rose-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                >
+                  Turun
+                </button>
+
+                <div className="h-4 w-[1px] bg-slate-200 mx-1"></div>
+
+                <button 
+                  onClick={exportHistToExcel}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center space-x-1 shadow-sm"
+                  title="Export Data ke Excel"
+                >
+                  <i data-lucide="file-spreadsheet" className="w-3.5 h-3.5"></i>
+                  <span>Excel</span>
+                </button>
+
+                <button 
+                  onClick={exportHistToPDF}
+                  className="bg-rose-600 hover:bg-rose-700 text-white px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center space-x-1 shadow-sm"
+                  title="Export Data ke PDF"
+                >
+                  <i data-lucide="file-text" className="w-3.5 h-3.5"></i>
+                  <span>PDF</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto overflow-y-auto custom-scrollbar flex-1">
+              <table className="w-full text-left text-xs text-slate-600">
+                <thead className="bg-slate-50 text-slate-500 font-extrabold uppercase text-[9px] tracking-wider border-b border-slate-200 sticky top-0 z-10 select-none shadow-sm">
+                  <tr>
+                    <th className="py-2.5 px-2 text-center w-10">No</th>
+                    <th onClick={() => handleHistSort('namaProject')} className="py-2.5 px-3 cursor-pointer hover:bg-slate-100 transition-colors">
+                      <div className="flex items-center space-x-1">
+                        <span>Project Number & Nama Project</span>
+                        {renderHistSortIcon('namaProject')}
+                      </div>
+                    </th>
+                    <th onClick={() => handleHistSort('wilayah')} className="py-2.5 px-3 cursor-pointer hover:bg-slate-100 transition-colors">
+                      <div className="flex items-center space-x-1">
+                        <span>Wilayah / Unit</span>
+                        {renderHistSortIcon('wilayah')}
+                      </div>
+                    </th>
+                    <th onClick={() => handleHistSort('efs1')} className="py-2.5 px-3 text-right cursor-pointer hover:bg-slate-100 transition-colors">
+                      <div className="flex items-center justify-end space-x-1">
+                        <span>Alokasi EFS ({m1})</span>
+                        {renderHistSortIcon('efs1')}
+                      </div>
+                    </th>
+                    <th onClick={() => handleHistSort('efs2')} className="py-2.5 px-3 text-right cursor-pointer hover:bg-slate-100 transition-colors">
+                      <div className="flex items-center justify-end space-x-1">
+                        <span>Alokasi EFS ({m2})</span>
+                        {renderHistSortIcon('efs2')}
+                      </div>
+                    </th>
+                    <th onClick={() => handleHistSort('diffEfs')} className="py-2.5 px-3 text-right bg-amber-50/80 cursor-pointer hover:bg-amber-100 transition-colors">
+                      <div className="flex items-center justify-end space-x-1">
+                        <span>Selisih EFS</span>
+                        {renderHistSortIcon('diffEfs')}
+                      </div>
+                    </th>
+                    <th onClick={() => handleHistSort('real1')} className="py-2.5 px-3 text-right cursor-pointer hover:bg-slate-100 transition-colors">
+                      <div className="flex items-center justify-end space-x-1">
+                        <span>Realisasi Kum. ({m1})</span>
+                        {renderHistSortIcon('real1')}
+                      </div>
+                    </th>
+                    <th onClick={() => handleHistSort('real2')} className="py-2.5 px-3 text-right cursor-pointer hover:bg-slate-100 transition-colors">
+                      <div className="flex items-center justify-end space-x-1">
+                        <span>Realisasi Kum. ({m2})</span>
+                        {renderHistSortIcon('real2')}
+                      </div>
+                    </th>
+                    <th onClick={() => handleHistSort('diffReal')} className="py-2.5 px-3 text-right bg-orange-50/80 cursor-pointer hover:bg-orange-100 transition-colors">
+                      <div className="flex items-center justify-end space-x-1">
+                        <span>Selisih Realisasi</span>
+                        {renderHistSortIcon('diffReal')}
+                      </div>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {varianceData.length === 0 ? (
+                    <tr>
+                      <td colSpan="9" className="py-8 text-center text-slate-400">
+                        Tidak ada data rincian proyek sesuai filter perbandingan.
+                      </td>
+                    </tr>
+                  ) : (
+                    varianceData.map((row, idx) => (
+                      <tr key={idx} className="hover:bg-slate-50/80 transition-colors">
+                        <td className="py-2 px-2 text-center font-bold text-slate-400 text-[10px]">{idx + 1}</td>
+                        <td className="py-2 px-3 max-w-[220px]">
+                          <div className="flex flex-col space-y-0.5">
+                            {row.projectNumber && (
+                              <span className="text-[9px] font-extrabold text-bni-teal bg-teal-50 px-1 py-0.2 rounded border border-teal-200/50 w-max">
+                                {row.projectNumber}
+                              </span>
+                            )}
+                            <span className="font-bold text-slate-800 truncate" title={row.namaProject}>{row.namaProject || '-'}</span>
+                          </div>
+                        </td>
+
+                        <td className="py-2 px-3 max-w-[160px]">
+                          <div className="flex flex-col space-y-0.5">
+                            <span className="text-[9px] font-black uppercase text-indigo-700 bg-indigo-50 px-1 py-0.2 rounded w-max">{row.wilayah}</span>
+                            <span className="text-slate-600 truncate text-[10px]">{row.operatingUnit}</span>
+                          </div>
+                        </td>
+
+                        <td className="py-2 px-3 text-right font-medium text-slate-700">{formatSlimIDR(row.efs1)}</td>
+                        <td className="py-2 px-3 text-right font-semibold text-blue-700">{formatSlimIDR(row.efs2)}</td>
+                        
+                        <td className="py-2 px-3 text-right font-black bg-amber-50/30">
+                          {row.diffEfs === 0 ? (
+                            <span className="text-slate-300">-</span>
+                          ) : (
+                            <span className={`px-1.5 py-0.5 rounded text-[10px] ${row.diffEfs > 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}`}>
+                              {row.diffEfs > 0 ? '+' : ''}{formatSlimIDR(row.diffEfs)}
+                            </span>
+                          )}
+                        </td>
+
+                        <td className="py-2 px-3 text-right font-medium text-slate-700">{formatSlimIDR(row.real1)}</td>
+                        <td className="py-2 px-3 text-right font-semibold text-bni-orange">{formatSlimIDR(row.real2)}</td>
+
+                        <td className="py-2 px-3 text-right font-black bg-orange-50/30">
+                          {row.diffReal === 0 ? (
+                            <span className="text-slate-300">-</span>
+                          ) : (
+                            <span className={`px-1.5 py-0.5 rounded text-[10px] ${row.diffReal > 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}`}>
+                              {row.diffReal > 0 ? '+' : ''}{formatSlimIDR(row.diffReal)}
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      );
+    };
+
     function App() {
       const [rawData, setRawData] = useState([]);
       const [detailNonOtomasiData, setDetailNonOtomasiData] = useState([]);
@@ -441,6 +1077,8 @@
       const [selectedGroup, setSelectedGroup] = useState('ALL');
       const [selectedWilayah, setSelectedWilayah] = useState('ALL');
       const [selectedUnit, setSelectedUnit] = useState('ALL');
+
+      const [reportMonth, setReportMonth] = useState('Jul');
 
       const [tableSearchTerm, setTableSearchTerm] = useState('');
       const [tableWilayahFilter, setTableWilayahFilter] = useState('ALL');
@@ -466,10 +1104,13 @@
       }, []);
 
       useEffect(() => {
-        if (window.lucide) {
-          window.lucide.createIcons();
-        }
-      }, [activeTab, currentPage, itemsPerPage, loading, rawData, selectedProjectForModal, sortConfig, topSearchTerm, bottomSearchTerm]);
+        const timer = setTimeout(() => {
+          if (window.lucide) {
+            window.lucide.createIcons();
+          }
+        }, 120);
+        return () => clearTimeout(timer);
+      }, [activeTab, currentPage, loading, selectedProjectForModal]);
 
       useEffect(() => {
         setCurrentPage(1);
@@ -640,7 +1281,7 @@
           const matchWilayah = selectedWilayah === 'ALL' || item.wilayah === selectedWilayah;
           
           let matchKategori = true;
-          if (activeTab !== 'overview' && activeTab !== 'Perabotan Non Otomasi') {
+          if (activeTab !== 'overview' && activeTab !== 'historical' && activeTab !== 'Perabotan Non Otomasi') {
             let cat = item.kategori || '';
             if (activeTab === 'Bangunan Gedung') matchKategori = cat.toLowerCase().includes('bangunan');
             else if (activeTab === 'Tanah') matchKategori = cat.toLowerCase().includes('tanah');
@@ -664,11 +1305,13 @@
         let sumAlokasiAwal = 0;
         let sumAlokasiRevisiRbb = 0;
         let sumAlokasiEfs = 0;
-
         let totalRealisasi = 0;
         let totalProject = 0;
         let totalAktif = 0;
         let totalNonAktif = 0;
+
+        const targetMonthIdx = MONTHS.indexOf(reportMonth);
+        const mKey = reportMonth.toLowerCase();
 
         const monthlyData = {};
         MONTHS.forEach(m => monthlyData[m.toLowerCase()] = 0);
@@ -676,18 +1319,24 @@
         filteredData.forEach(row => {
           sumAlokasiAwal += Number(row.alokasiAwal) || 0;
           sumAlokasiRevisiRbb += Number(row.alokasiRevisiRbb) || 0;
-          sumAlokasiEfs += Number(row.alokasiEfs) || 0;
 
-          let rowRealisasi = 0;
+          const efsVal = Number(row[`efs_${mKey}`]) !== undefined ? Number(row[`efs_${mKey}`]) : (Number(row.alokasiEfs) || 0);
+          sumAlokasiEfs += efsVal;
+
+          let kumulatifRowReal = 0;
+          for (let i = 0; i <= targetMonthIdx; i++) {
+            kumulatifRowReal += Number(row[MONTHS[i].toLowerCase()]) || 0;
+          }
+
+          const valMonthVal = Number(row[mKey]) || 0;
+          const finalRealVal = valMonthVal > kumulatifRowReal ? valMonthVal : kumulatifRowReal;
+          totalRealisasi += finalRealVal;
+
           MONTHS.forEach(m => {
-            const val = Number(row[m.toLowerCase()]) || 0;
-            rowRealisasi += val;
-            monthlyData[m.toLowerCase()] += val;
+            monthlyData[m.toLowerCase()] += Number(row[m.toLowerCase()]) || 0;
           });
 
-          totalRealisasi += rowRealisasi;
           totalProject += 1;
-
           if (String(row.statusProject).toUpperCase() === 'NON AKTIF' || String(row.statusProject).toUpperCase() === 'DROPPED') {
             totalNonAktif += 1;
           } else {
@@ -707,26 +1356,40 @@
           pctTotal, 
           totalProject, 
           totalAktif, 
-          totalNonAktif, 
-          monthlyData 
+          totalNonAktif,
+          monthlyData
         };
-      }, [filteredData]);
+      }, [filteredData, reportMonth]);
 
       const mappedProjectsData = useMemo(() => {
+        const targetMonthIdx = MONTHS.indexOf(reportMonth);
+        const mKey = reportMonth.toLowerCase();
+
         return filteredData.map(row => {
-          const aloEfs = Number(row.alokasiEfs) || 0;
-          let totalReal = 0;
-          MONTHS.forEach(m => { totalReal += Number(row[m.toLowerCase()]) || 0; });
+          const aloEfs = Number(row[`efs_${mKey}`]) !== undefined ? Number(row[`efs_${mKey}`]) : (Number(row.alokasiEfs) || 0);
           
-          const pct = aloEfs > 0 ? (totalReal / aloEfs) * 100 : 0;
+          let kumulatifReal = 0;
+          for (let i = 0; i <= targetMonthIdx; i++) {
+            kumulatifReal += Number(row[MONTHS[i].toLowerCase()]) || 0;
+          }
+          const valMonthVal = Number(row[mKey]) || 0;
+          const finalTotalReal = valMonthVal > kumulatifReal ? valMonthVal : kumulatifReal;
+
+          const pct = aloEfs > 0 ? (finalTotalReal / aloEfs) * 100 : 0;
+
           return {
             ...row,
-            totalReal,
-            aloEfs,
-            pctRealisasi: pct
+            alokasiAwal: Number(row.alokasiAwal) || 0,
+            alokasiRevisiRbb: Number(row.alokasiRevisiRbb) || 0,
+            aloEfs: aloEfs,
+            alokasiEfs: aloEfs,
+            totalReal: finalTotalReal,
+            pctRealisasi: pct,
+            linkDokumenEnp: row.linkDokumenEnp || "",
+            catatanPembatalan: row.catatanPembatalan || ""
           };
         });
-      }, [filteredData]);
+      }, [filteredData, reportMonth]);
 
       const top10ProjectsList = useMemo(() => {
         let list = [...mappedProjectsData];
@@ -767,32 +1430,35 @@
       }, [mappedProjectsData, bottomSearchTerm]);
 
       const tickerStats = useMemo(() => {
-        const totalAlokasiEfs = stats.sumAlokasiEfs;
-        
-        const currentMonthIdx = new Date().getMonth();
-        const currentMonthName = MONTHS[currentMonthIdx];
-        
-        let totalKumulatifBulanBerjalan = 0;
-        for (let i = 0; i <= currentMonthIdx; i++) {
-          const mKey = MONTHS[i].toLowerCase();
-          totalKumulatifBulanBerjalan += (stats.monthlyData[mKey] || 0);
-        }
-
-        const pctRealisasiTotal = stats.pctTotal;
+        const targetMonthIdx = MONTHS.indexOf(reportMonth);
+        const mKey = reportMonth.toLowerCase();
+        let totalAlokasiEfs = 0;
+        let totalRealisasiFilter = 0;
 
         const mapWilayahPct = {};
+
         rawData.forEach(row => {
+          const efs = Number(row[`efs_${mKey}`]) !== undefined ? Number(row[`efs_${mKey}`]) : (Number(row.alokasiEfs) || 0);
+          
+          let kumulatifReal = 0;
+          for (let i = 0; i <= targetMonthIdx; i++) {
+            kumulatifReal += Number(row[MONTHS[i].toLowerCase()]) || 0;
+          }
+          const valMonthVal = Number(row[mKey]) || 0;
+          const real = valMonthVal > kumulatifReal ? valMonthVal : kumulatifReal;
+
+          totalAlokasiEfs += efs;
+          totalRealisasiFilter += real;
+
           const w = row.wilayah;
           if (w) {
             if (!mapWilayahPct[w]) mapWilayahPct[w] = { efs: 0, real: 0 };
-            const efs = Number(row.alokasiEfs) || 0;
-            let real = 0;
-            MONTHS.forEach(m => { real += Number(row[m.toLowerCase()]) || 0; });
-
             mapWilayahPct[w].efs += efs;
             mapWilayahPct[w].real += real;
           }
         });
+
+        const pctRealisasiTotal = totalAlokasiEfs > 0 ? ((totalRealisasiFilter / totalAlokasiEfs) * 100).toFixed(2) : '0.00';
 
         const listWilayahPct = Object.keys(mapWilayahPct).map(w => {
           const efs = mapWilayahPct[w].efs;
@@ -803,12 +1469,12 @@
 
         return {
           totalAlokasiEfs,
-          currentMonthName,
-          totalKumulatifBulanBerjalan,
+          currentMonthName: reportMonth,
+          totalKumulatifBulanBerjalan: totalRealisasiFilter,
           pctRealisasiTotal,
           listWilayahPct
         };
-      }, [stats, rawData]);
+      }, [rawData, reportMonth]);
 
       const categorySummaryBoxes = useMemo(() => {
         const targetCats = ["Bangunan Gedung", "Tanah", "Perabotan Otomasi", "Perabotan Non Otomasi", "Kendaraan"];
@@ -818,47 +1484,62 @@
           summary[c] = { alokasi: 0, realisasi: 0, totalProject: 0, aktif: 0, nonAktif: 0 };
         });
 
+        const targetMonthIdx = MONTHS.indexOf(reportMonth);
+
         rawData.forEach(row => {
-          let cat = row.kategori || '';
-          let catKey = "Lainnya";
+          let cat = (row.kategori || '').toLowerCase().trim();
+          let matchedCat = null;
 
-          if (cat.toLowerCase().includes('bangunan')) catKey = "Bangunan Gedung";
-          else if (cat.toLowerCase().includes('tanah')) catKey = "Tanah";
-          else if (cat.toLowerCase().includes('otomasi') && !cat.toLowerCase().includes('non')) catKey = "Perabotan Otomasi";
-          else if (cat.toLowerCase().includes('perabotan')) catKey = "Perabotan Non Otomasi";
-          else if (cat.toLowerCase().includes('kendaraan')) catKey = "Kendaraan";
+          if (cat.includes('bangunan') || cat.includes('gedung')) matchedCat = "Bangunan Gedung";
+          else if (cat.includes('tanah')) matchedCat = "Tanah";
+          else if (cat.includes('otomasi') && !cat.includes('non')) matchedCat = "Perabotan Otomasi";
+          else if (cat.includes('perabotan') || cat.includes('non otomasi') || cat.includes('non-otomasi') || cat.includes('mebel')) matchedCat = "Perabotan Non Otomasi";
+          else if (cat.includes('kendaraan') || cat.includes('mobil') || cat.includes('motor')) matchedCat = "Kendaraan";
 
-          if (summary[catKey]) {
-            const pagu = Number(row.alokasiEfs) || 0; 
-            let rowReal = 0;
-            MONTHS.forEach(m => { rowReal += Number(row[m.toLowerCase()]) || 0; });
+          if (matchedCat && summary[matchedCat]) {
+            const mKey = reportMonth.toLowerCase();
+            const pagu = Number(row[`efs_${mKey}`]) !== undefined ? Number(row[`efs_${mKey}`]) : (Number(row.alokasiEfs) || 0);
+            
+            let kumulatifReal = 0;
+            for (let i = 0; i <= targetMonthIdx; i++) {
+              kumulatifReal += Number(row[MONTHS[i].toLowerCase()]) || 0;
+            }
+            const valMonthVal = Number(row[mKey]) || 0;
+            const rowReal = valMonthVal > kumulatifReal ? valMonthVal : kumulatifReal;
 
-            summary[catKey].alokasi += pagu;
-            summary[catKey].realisasi += rowReal;
-            summary[catKey].totalProject += 1;
+            summary[matchedCat].alokasi += pagu;
+            summary[matchedCat].realisasi += rowReal;
+            summary[matchedCat].totalProject += 1;
             
             if (String(row.statusProject).toUpperCase() === 'NON AKTIF' || String(row.statusProject).toUpperCase() === 'DROPPED') {
-              summary[catKey].nonAktif += 1;
+              summary[matchedCat].nonAktif += 1;
             } else {
-              summary[catKey].aktif += 1;
+              summary[matchedCat].aktif += 1;
             }
           }
         });
 
         return summary;
-      }, [rawData]);
+      }, [rawData, reportMonth]);
 
       const mirrorChartData = useMemo(() => {
         const mapWilayah = {};
+        const targetMonthIdx = MONTHS.indexOf(reportMonth);
 
         rawData.forEach(row => {
           const w = row.wilayah || 'Lainnya';
           if (!mapWilayah[w]) mapWilayah[w] = { alokasi: 0, realisasi: 0, alokasiEfs: 0 };
 
           const paguAwal = Number(row.alokasiAwal) || 0;
-          const paguEfs = Number(row.alokasiEfs) || 0;
-          let rowReal = 0;
-          MONTHS.forEach(m => { rowReal += Number(row[m.toLowerCase()]) || 0; });
+          const mKey = reportMonth.toLowerCase();
+          const paguEfs = Number(row[`efs_${mKey}`]) !== undefined ? Number(row[`efs_${mKey}`]) : (Number(row.alokasiEfs) || 0);
+          
+          let kumulatifReal = 0;
+          for (let i = 0; i <= targetMonthIdx; i++) {
+            kumulatifReal += Number(row[MONTHS[i].toLowerCase()]) || 0;
+          }
+          const valMonthVal = Number(row[mKey]) || 0;
+          const rowReal = valMonthVal > kumulatifReal ? valMonthVal : kumulatifReal;
 
           mapWilayah[w].alokasi += paguAwal;
           mapWilayah[w].alokasiEfs += paguEfs;
@@ -871,7 +1552,7 @@
             const aloEfs = mapWilayah[w].alokasiEfs;
             const rea = mapWilayah[w].realisasi;
             const pct = aloEfs > 0 ? (rea / aloEfs) * 100 : 0; 
-            return { name: w, alokasi: aloAwal, pctRealisasi: pct };
+            return { name: w, alokasi: aloEfs, pctRealisasi: pct };
           })
           .sort((a, b) => b.alokasi - a.alokasi);
 
@@ -880,7 +1561,7 @@
           alokasi: listSorted.map(item => item.alokasi),
           pctRealisasi: listSorted.map(item => item.pctRealisasi)
         };
-      }, [rawData]);
+      }, [rawData, reportMonth]);
 
       const handleSort = (key) => {
         let direction = 'asc';
@@ -891,7 +1572,7 @@
       };
 
       const tableRows = useMemo(() => {
-        let data = filteredData.filter(row => {
+        let data = mappedProjectsData.filter(row => {
           if (tableSearchTerm) {
             const term = tableSearchTerm.toLowerCase();
             const matchName = (row.namaProject || '').toLowerCase().includes(term);
@@ -930,15 +1611,14 @@
             let aVal, bVal;
 
             if (sortConfig.key === 'realisasi') {
-              aVal = MONTHS.reduce((acc, m) => acc + (Number(a[m.toLowerCase()]) || 0), 0);
-              bVal = MONTHS.reduce((acc, m) => acc + (Number(b[m.toLowerCase()]) || 0), 0);
+              aVal = a.totalReal;
+              bVal = b.totalReal;
+            } else if (sortConfig.key === 'alokasiEfs') {
+              aVal = a.aloEfs;
+              bVal = b.aloEfs;
             } else if (sortConfig.key === 'pctRealisasi') {
-              const aReal = MONTHS.reduce((acc, m) => acc + (Number(a[m.toLowerCase()]) || 0), 0);
-              const bReal = MONTHS.reduce((acc, m) => acc + (Number(b[m.toLowerCase()]) || 0), 0);
-              const aEfs = Number(a.alokasiEfs) || 0;
-              const bEfs = Number(b.alokasiEfs) || 0;
-              aVal = aEfs > 0 ? (aReal / aEfs) * 100 : 0;
-              bVal = bEfs > 0 ? (bReal / bEfs) * 100 : 0;
+              aVal = a.pctRealisasi;
+              bVal = b.pctRealisasi;
             } else {
               aVal = a[sortConfig.key];
               bVal = b[sortConfig.key];
@@ -957,7 +1637,7 @@
         }
 
         return data;
-      }, [filteredData, tableSearchTerm, tableWilayahFilter, tableKategoriFilter, tableStatusProjFilter, tableStatusEnpFilter, sortConfig]);
+      }, [mappedProjectsData, tableSearchTerm, tableWilayahFilter, tableKategoriFilter, tableStatusProjFilter, tableStatusEnpFilter, sortConfig]);
 
       const resetTableFilters = () => {
         setTableSearchTerm('');
@@ -966,6 +1646,73 @@
         setTableStatusProjFilter('ALL');
         setTableStatusEnpFilter('ALL');
         setSortConfig({ key: null, direction: 'asc' });
+      };
+
+      const exportProjectsToExcel = () => {
+        const rows = tableRows.map((row, index) => {
+          const base = {
+            "No": index + 1,
+            "Project Number": row.projectNumber || '-',
+            "Nama Project": row.namaProject || '-',
+            "Kategori": row.kategori || '-',
+            "Wilayah": row.wilayah || '-',
+            "Operating Unit": row.operatingUnit || '-'
+          };
+
+          if (activeTab === 'Perabotan Non Otomasi') {
+            base["Qty"] = row.qty || 0;
+          }
+
+          return {
+            ...base,
+            "ENP Awal": row.enpAwal || 0,
+            "Alokasi Awal": row.alokasiAwal || 0,
+            "Revisi RBB": row.alokasiRevisiRbb || 0,
+            [`Alokasi EFS (${reportMonth})`]: row.aloEfs || 0,
+            [`Realisasi (${reportMonth})`]: row.totalReal || 0,
+            "% Realisasi": row.pctRealisasi ? Number(row.pctRealisasi.toFixed(2)) : 0,
+            "Status": row.statusProject || 'AKTIF'
+          };
+        });
+
+        const worksheet = XLSX.utils.json_to_sheet(rows);
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, "Data_Projects");
+        XLSX.writeFile(workbook, `Report_Projects_${activeTab}_${reportMonth}.xlsx`);
+      };
+
+      const exportProjectsToPDF = () => {
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF('l', 'mm', 'a4');
+
+        doc.setFontSize(14);
+        doc.text(`Laporan Daftar Proyek - ${activeTab} (${reportMonth})`, 14, 15);
+        doc.setFontSize(9);
+        doc.text(`Tanggal Cetak: ${new Date().toLocaleDateString('id-ID')}`, 14, 21);
+
+        const tableColumn = ["No", "Project Number", "Nama Project", "Wilayah", "Alokasi Awal", `EFS (${reportMonth})`, `Realisasi (${reportMonth})`, "% Real", "Status"];
+        const tableDataRows = tableRows.map((row, index) => [
+          index + 1,
+          row.projectNumber || '-',
+          row.namaProject || '-',
+          row.wilayah || '-',
+          formatCompactIDR(row.alokasiAwal),
+          formatCompactIDR(row.aloEfs),
+          formatCompactIDR(row.totalReal),
+          `${(row.pctRealisasi || 0).toFixed(1)}%`,
+          row.statusProject || 'AKTIF'
+        ]);
+
+        doc.autoTable({
+          head: [tableColumn],
+          body: tableDataRows,
+          startY: 25,
+          styles: { fontSize: 8, cellPadding: 2 },
+          headStyles: { fillColor: [0, 102, 102], textColor: 255, fontStyle: 'bold' },
+          alternateRowStyles: { fillColor: [245, 247, 250] }
+        });
+
+        doc.save(`Report_Projects_${activeTab}_${reportMonth}.pdf`);
       };
 
       const totalPages = Math.max(1, Math.ceil(tableRows.length / itemsPerPage));
@@ -991,7 +1738,7 @@
         return pages;
       }, [currentPage, totalPages]);
 
-      const totalColumns = activeTab === 'Perabotan Non Otomasi' ? 11 : 10;
+      const totalColumns = activeTab === 'Perabotan Non Otomasi' ? 12 : 11;
 
       const renderSortIcon = (columnKey) => {
         if (sortConfig.key !== columnKey) {
@@ -1004,8 +1751,6 @@
 
       return (
         <div className="min-h-screen flex bg-[#F3F5F9] relative pb-16">
-          
-          {/* 1. LEFT SIDEBAR NAVIGATION */}
           <aside className="w-64 bg-white border-r border-slate-200/80 flex flex-col justify-between p-5 hidden lg:flex shrink-0">
             <div>
               <div className="flex items-center space-x-3 px-2 mb-8">
@@ -1034,11 +1779,23 @@
                       <span>Overview</span>
                     </button>
 
+                    <button 
+                      onClick={() => setActiveTab('historical')}
+                      className={`w-full flex items-center space-x-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all ${
+                        activeTab === 'historical' 
+                          ? 'bg-bni-teal text-white shadow-sm' 
+                          : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800'
+                      }`}
+                    >
+                      <i data-lucide="line-chart" className="w-4 h-4"></i>
+                      <span>Historical & Variance</span>
+                    </button>
+
                     <div className="space-y-1">
                       <button 
                         onClick={() => setProjectsMenuOpen(!projectsMenuOpen)}
                         className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-all ${
-                          activeTab !== 'overview' 
+                          (activeTab !== 'overview' && activeTab !== 'historical') 
                             ? 'bg-bni-teal/10 text-bni-teal font-bold' 
                             : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800'
                         }`}
@@ -1085,9 +1842,7 @@
             </div>
           </aside>
 
-          {/* 2. MAIN DASHBOARD CONTENT */}
           <main className="flex-1 flex flex-col min-w-0 overflow-y-auto">
-            
             <header className="bg-white/80 backdrop-blur-md sticky top-0 z-40 border-b border-slate-200/80 px-6 py-3.5 flex flex-wrap items-center justify-between gap-3">
               <div>
                 <h2 className="text-base font-extrabold text-slate-800">CAPEX Divisi NSD & Wilayah-Cabang</h2>
@@ -1151,61 +1906,82 @@
             </header>
 
             <div className="p-6 space-y-6 max-w-7xl w-full mx-auto">
-              
               <div className="flex items-center justify-between">
                 <div>
                   <div className="flex items-center space-x-2 text-xs text-slate-400 font-medium mb-1">
                     <span>General</span>
                     <i data-lucide="chevron-right" className="w-3 h-3"></i>
-                    <span className="text-bni-teal font-bold capitalize">{activeTab === 'overview' ? 'Overview' : `Projects / ${activeTab}`}</span>
+                    <span className="text-bni-teal font-bold capitalize">
+                      {activeTab === 'overview' ? 'Overview' : activeTab === 'historical' ? 'Historical Analytics' : `Projects / ${activeTab}`}
+                    </span>
                   </div>
                   <h3 className="text-lg font-bold text-slate-800">
-                    {activeTab === 'overview' ? 'Dashboard Overview' : `Detail Anggaran: ${activeTab}`}
+                    {activeTab === 'overview' ? 'Dashboard Overview' : activeTab === 'historical' ? 'Historical & Variance Analytics' : `Detail Anggaran: ${activeTab}`}
                   </h3>
                   <p className="text-xs text-slate-400">
-                    {activeTab === 'overview' ? 'Track your investment budget and achieve financial goals' : `Monitoring khusus mata anggaran ${activeTab}`}
+                    {activeTab === 'overview' ? 'Track your investment budget and achieve financial goals' : activeTab === 'historical' ? 'Analisis perubahan alokasi EFS dan realisasi antar bulan' : `Monitoring khusus mata anggaran ${activeTab}`}
                   </p>
                 </div>
+
+                {activeTab !== 'historical' && (
+                  <div className="flex items-center bg-white border border-slate-200 shadow-sm rounded-xl px-3 py-1.5 space-x-2">
+                    <i data-lucide="calendar" className="w-4 h-4 text-bni-teal"></i>
+                    <span className="text-xs font-extrabold text-slate-600">Bulan Laporan:</span>
+                    <select 
+                      value={reportMonth} 
+                      onChange={e => setReportMonth(e.target.value)}
+                      className="bg-bni-teal-subtle text-bni-teal font-black text-xs py-1 px-2 rounded-lg border-none focus:outline-none cursor-pointer"
+                    >
+                      {MONTHS.map(m => (
+                        <option key={m} value={m}>{m} 2026</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
               </div>
 
-              {/* SUMMARY CARDS */}
-              <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm space-y-3">
-                <div className="flex items-center justify-between border-b pb-2 border-slate-100">
-                  <h4 className="font-extrabold text-slate-800 text-sm flex items-center space-x-2">
-                    <i data-lucide="layers" className="w-4 h-4 text-bni-teal"></i>
-                    <span>Ringkasan Alokasi Anggaran (3 Versi)</span>
-                  </h4>
-                  <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">Total Alokasi</span>
+              {activeTab === 'historical' && (
+                <HistoricalAnalysisView data={rawData} />
+              )}
+
+              {activeTab !== 'historical' && (
+                <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm space-y-3">
+                  <div className="flex items-center justify-between border-b pb-2 border-slate-100">
+                    <h4 className="font-extrabold text-slate-800 text-sm flex items-center space-x-2">
+                      <i data-lucide="layers" className="w-4 h-4 text-bni-teal"></i>
+                      <span>Ringkasan Alokasi Anggaran (3 Versi)</span>
+                    </h4>
+                    <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">Total Alokasi</span>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="bg-teal-50/50 border border-teal-100 p-4 rounded-xl">
+                      <span className="text-[10px] font-bold text-teal-700 uppercase">a. Usul Alokasi Awal</span>
+                      <h4 className="text-xl font-black text-slate-800 mt-1">{formatCompactIDR(stats.sumAlokasiAwal)}</h4>
+                      <p className="text-[10px] text-slate-400 mt-1">{formatIDR(stats.sumAlokasiAwal)}</p>
+                    </div>
+
+                    <div className="bg-amber-50/50 border border-amber-100 p-4 rounded-xl">
+                      <span className="text-[10px] font-bold text-amber-700 uppercase">b. Usul Alokasi Revisi RBB</span>
+                      <h4 className="text-xl font-black text-slate-800 mt-1">{formatCompactIDR(stats.sumAlokasiRevisiRbb)}</h4>
+                      <p className="text-[10px] text-slate-400 mt-1">{formatIDR(stats.sumAlokasiRevisiRbb)}</p>
+                    </div>
+
+                    <div className="bg-blue-50/50 border border-blue-100 p-4 rounded-xl">
+                      <span className="text-[10px] font-bold text-blue-700 uppercase">c. Alokasi EFS ({reportMonth})</span>
+                      <h4 className="text-xl font-black text-slate-800 mt-1">{formatCompactIDR(stats.sumAlokasiEfs)}</h4>
+                      <p className="text-[10px] text-slate-400 mt-1">{formatIDR(stats.sumAlokasiEfs)}</p>
+                    </div>
+                  </div>
                 </div>
+              )}
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="bg-teal-50/50 border border-teal-100 p-4 rounded-xl">
-                    <span className="text-[10px] font-bold text-teal-700 uppercase">a. Usul Alokasi Awal</span>
-                    <h4 className="text-xl font-black text-slate-800 mt-1">{formatCompactIDR(stats.sumAlokasiAwal)}</h4>
-                    <p className="text-[10px] text-slate-400 mt-1">{formatIDR(stats.sumAlokasiAwal)}</p>
-                  </div>
-
-                  <div className="bg-amber-50/50 border border-amber-100 p-4 rounded-xl">
-                    <span className="text-[10px] font-bold text-amber-700 uppercase">b. Usul Alokasi Revisi RBB</span>
-                    <h4 className="text-xl font-black text-slate-800 mt-1">{formatCompactIDR(stats.sumAlokasiRevisiRbb)}</h4>
-                    <p className="text-[10px] text-slate-400 mt-1">{formatIDR(stats.sumAlokasiRevisiRbb)}</p>
-                  </div>
-
-                  <div className="bg-blue-50/50 border border-blue-100 p-4 rounded-xl">
-                    <span className="text-[10px] font-bold text-blue-700 uppercase">c. Alokasi EFS</span>
-                    <h4 className="text-xl font-black text-slate-800 mt-1">{formatCompactIDR(stats.sumAlokasiEfs)}</h4>
-                    <p className="text-[10px] text-slate-400 mt-1">{formatIDR(stats.sumAlokasiEfs)}</p>
-                  </div>
-                </div>
-              </div>
-
-              {/* TAMPILAN KHUSUS MENU OVERVIEW */}
               {activeTab === 'overview' && (
                 <>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
                     <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm flex items-center justify-between">
                       <div>
-                        <span className="text-xs font-bold text-slate-400 uppercase">Total Alokasi (EFS)</span>
+                        <span className="text-xs font-bold text-slate-400 uppercase">Total Alokasi EFS ({reportMonth})</span>
                         <h4 className="text-2xl font-black text-slate-800 mt-2 tracking-tight">{formatCompactIDR(stats.sumAlokasiEfs)}</h4>
                         <p className="text-[11px] font-semibold text-blue-600 mt-1 flex items-center">
                           <i data-lucide="arrow-up-right" className="w-3.5 h-3.5 mr-0.5"></i>
@@ -1217,11 +1993,11 @@
 
                     <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm flex items-center justify-between">
                       <div>
-                        <span className="text-xs font-bold text-slate-400 uppercase">Total Realisasi</span>
+                        <span className="text-xs font-bold text-slate-400 uppercase">Total Realisasi Kumulatif ({reportMonth})</span>
                         <h4 className="text-2xl font-black text-bni-orange mt-2 tracking-tight">{formatCompactIDR(stats.totalRealisasi)}</h4>
                         <p className="text-[11px] font-semibold text-bni-orange mt-1 flex items-center">
                           <i data-lucide="trending-up" className="w-3.5 h-3.5 mr-0.5"></i>
-                          <span>Penyerapan YTD</span>
+                          <span>Penyerapan Kumulatif {reportMonth}</span>
                         </p>
                       </div>
                       <MiniSparkBar color="orange" />
@@ -1245,11 +2021,10 @@
                     </div>
                   </div>
 
-                  {/* SUMMARY CATEGORIES */}
                   <div>
                     <h4 className="font-bold text-slate-800 text-sm mb-3 flex items-center space-x-2">
                       <i data-lucide="box" className="w-4 h-4 text-bni-teal"></i>
-                      <span>Summary Per Mata Anggaran</span>
+                      <span>Summary Per Mata Anggaran ({reportMonth})</span>
                     </h4>
                     <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
                       {Object.entries(categorySummaryBoxes).map(([catName, data]) => {
@@ -1294,13 +2069,12 @@
                     </div>
                   </div>
 
-                  {/* MIRROR BAR CHART & HALF-DOUGHNUT GAUGE CHART */}
                   <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                     <div className="lg:col-span-2 bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm flex flex-col justify-between">
                       <div className="flex items-center justify-between border-b pb-2 mb-3 border-slate-100">
                         <h4 className="font-extrabold text-slate-800 text-sm flex items-center space-x-2">
                           <i data-lucide="bar-chart-horizontal" className="w-4 h-4 text-bni-teal"></i>
-                          <span>Perbandingan Alokasi vs % Realisasi per Wilayah</span>
+                          <span>Perbandingan Alokasi vs % Realisasi per Wilayah ({reportMonth})</span>
                         </h4>
                         <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">Urut Tertinggi</span>
                       </div>
@@ -1319,15 +2093,12 @@
                     />
                   </div>
 
-                  {/* HEATMAP MATRIX CHARTS */}
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    
-                    {/* HEATMAP 1 (KIRI): PAGU ALOKASI EFS */}
-                    <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm space-y-3">
+                    <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm space-y-3 overflow-hidden">
                       <div className="flex items-center justify-between border-b pb-2 border-slate-100">
                         <h4 className="font-extrabold text-slate-800 text-sm flex items-center space-x-2">
                           <i data-lucide="grid" className="w-4 h-4 text-bni-teal"></i>
-                          <span>Heatmap Matrix 1: Pagu Alokasi EFS</span>
+                          <span>Heatmap Matrix 1: Pagu Alokasi EFS ({reportMonth})</span>
                         </h4>
                         <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">Konsentrasi Anggaran</span>
                       </div>
@@ -1338,6 +2109,7 @@
                         categories={kategoriList} 
                         wilayahs={wilayahList} 
                         type="efs" 
+                        reportMonth={reportMonth}
                       />
 
                       <div className="flex items-center justify-end space-x-2 text-[9px] font-bold text-slate-500 pt-2 border-t border-slate-100">
@@ -1349,12 +2121,11 @@
                       </div>
                     </div>
 
-                    {/* HEATMAP 2 (KANAN): % REALISASI */}
-                    <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm space-y-3">
+                    <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm space-y-3 overflow-hidden">
                       <div className="flex items-center justify-between border-b pb-2 border-slate-100">
                         <h4 className="font-extrabold text-slate-800 text-sm flex items-center space-x-2">
                           <i data-lucide="grid" className="w-4 h-4 text-bni-orange"></i>
-                          <span>Heatmap Matrix 2: % Realisasi Penyerapan</span>
+                          <span>Heatmap Matrix 2: % Realisasi Penyerapan ({reportMonth})</span>
                         </h4>
                         <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">Wilayah vs Anggaran</span>
                       </div>
@@ -1365,6 +2136,7 @@
                         categories={kategoriList} 
                         wilayahs={wilayahList} 
                         type="pct" 
+                        reportMonth={reportMonth}
                       />
 
                       <div className="flex items-center justify-end space-x-2 text-[9px] font-bold text-slate-500 pt-2 border-t border-slate-100">
@@ -1376,13 +2148,9 @@
                         <span className="px-1.5 py-0.5 bg-emerald-500 text-white rounded">&ge;85%</span>
                       </div>
                     </div>
-
                   </div>
 
-                  {/* DUA LIST CARDS KHUSUS DI MENU OVERVIEW */}
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    
-                    {/* LIST 1: TOP 10 PROJECT */}
                     <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm flex flex-col justify-between overflow-hidden">
                       <div className="p-4 border-b border-slate-100 space-y-2">
                         <div className="flex items-center justify-between">
@@ -1461,7 +2229,6 @@
                       </div>
                     </div>
 
-                    {/* LIST 2: BOTTOM 10 PROJECT */}
                     <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm flex flex-col justify-between overflow-hidden">
                       <div className="p-4 border-b border-slate-100 space-y-2">
                         <div className="flex items-center justify-between">
@@ -1541,14 +2308,12 @@
                         )}
                       </div>
                     </div>
-
                   </div>
                 </>
               )}
 
-              {/* TABEL DAFTAR REALISASI PROJECTS (SUB-MENU PROJECTS / KATEGORI) */}
-              {activeTab !== 'overview' && (
-                <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm flex flex-col justify-between overflow-hidden">
+              {activeTab !== 'overview' && activeTab !== 'historical' && (
+                <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm flex flex-col justify-between overflow-hidden max-h-[650px]">
                   <div className="p-4 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
                     <div>
                       <h4 className="font-bold text-slate-800 text-sm">
@@ -1564,76 +2329,97 @@
                     </div>
                   </div>
 
-                  {/* BARIS FILTER TABEL */}
-                  <div className="p-3 bg-slate-50/70 border-b border-slate-100 flex flex-wrap items-center gap-2.5">
-                    <div className="relative min-w-[180px] flex-1">
-                      <i data-lucide="search" className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5"></i>
-                      <input 
-                        type="text" 
-                        placeholder="Cari Nama / Project Number..." 
-                        value={tableSearchTerm}
-                        onChange={(e) => setTableSearchTerm(e.target.value)}
-                        className="w-full pl-8 pr-3 py-1 bg-white border border-slate-200 rounded-lg text-xs font-medium focus:outline-none focus:border-bni-teal transition-all shadow-sm"
-                      />
+                  <div className="p-3 bg-slate-50/70 border-b border-slate-100 flex flex-wrap items-center justify-between gap-2.5">
+                    <div className="flex flex-wrap items-center gap-2 flex-1 min-w-[280px]">
+                      <div className="relative min-w-[180px] flex-1">
+                        <i data-lucide="search" className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5"></i>
+                        <input 
+                          type="text" 
+                          placeholder="Cari Nama / Project Number..." 
+                          value={tableSearchTerm}
+                          onChange={(e) => setTableSearchTerm(e.target.value)}
+                          className="w-full pl-8 pr-3 py-1 bg-white border border-slate-200 rounded-lg text-xs font-medium focus:outline-none focus:border-bni-teal transition-all shadow-sm"
+                        />
+                      </div>
+
+                      <div className="flex items-center bg-white border border-slate-200 rounded-lg px-2 py-1 shadow-sm">
+                        <span className="text-[10px] font-bold text-slate-400 mr-1">Wilayah:</span>
+                        <select 
+                          value={tableWilayahFilter} 
+                          onChange={(e) => setTableWilayahFilter(e.target.value)}
+                          className="bg-transparent text-slate-700 font-bold text-xs border-none focus:outline-none cursor-pointer max-w-[110px] truncate"
+                        >
+                          <option value="ALL">Semua</option>
+                          {wilayahList.map(w => (
+                            <option key={w} value={w}>{w}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="flex items-center bg-white border border-slate-200 rounded-lg px-2 py-1 shadow-sm">
+                        <span className="text-[10px] font-bold text-slate-400 mr-1">Proyek:</span>
+                        <select 
+                          value={tableStatusProjFilter} 
+                          onChange={(e) => setTableStatusProjFilter(e.target.value)}
+                          className="bg-transparent text-slate-700 font-bold text-xs border-none focus:outline-none cursor-pointer"
+                        >
+                          <option value="ALL">Semua</option>
+                          <option value="AKTIF">AKTIF</option>
+                          <option value="NON_AKTIF">NON AKTIF</option>
+                        </select>
+                      </div>
+
+                      <div className="flex items-center bg-white border border-slate-200 rounded-lg px-2 py-1 shadow-sm">
+                        <span className="text-[10px] font-bold text-slate-400 mr-1">ENP:</span>
+                        <select 
+                          value={tableStatusEnpFilter} 
+                          onChange={(e) => setTableStatusEnpFilter(e.target.value)}
+                          className="bg-transparent text-slate-700 font-bold text-xs border-none focus:outline-none cursor-pointer"
+                        >
+                          <option value="ALL">Semua</option>
+                          {statusEnpList.map(st => (
+                            <option key={st} value={st}>{st}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {(tableSearchTerm || tableWilayahFilter !== 'ALL' || tableKategoriFilter !== 'ALL' || tableStatusProjFilter !== 'ALL' || tableStatusEnpFilter !== 'ALL' || sortConfig.key !== null) && (
+                        <button 
+                          onClick={resetTableFilters}
+                          className="text-[10px] font-bold text-rose-600 hover:text-rose-800 bg-rose-50 hover:bg-rose-100 px-2.5 py-1 rounded-lg transition-all flex items-center space-x-1"
+                        >
+                          <i data-lucide="rotate-ccw" className="w-3 h-3"></i>
+                          <span>Reset</span>
+                        </button>
+                      )}
                     </div>
 
-                    <div className="flex items-center bg-white border border-slate-200 rounded-lg px-2 py-1 shadow-sm">
-                      <span className="text-[10px] font-bold text-slate-400 mr-1">Wilayah:</span>
-                      <select 
-                        value={tableWilayahFilter} 
-                        onChange={(e) => setTableWilayahFilter(e.target.value)}
-                        className="bg-transparent text-slate-700 font-bold text-xs border-none focus:outline-none cursor-pointer max-w-[110px] truncate"
-                      >
-                        <option value="ALL">Semua</option>
-                        {wilayahList.map(w => (
-                          <option key={w} value={w}>{w}</option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div className="flex items-center bg-white border border-slate-200 rounded-lg px-2 py-1 shadow-sm">
-                      <span className="text-[10px] font-bold text-slate-400 mr-1">Proyek:</span>
-                      <select 
-                        value={tableStatusProjFilter} 
-                        onChange={(e) => setTableStatusProjFilter(e.target.value)}
-                        className="bg-transparent text-slate-700 font-bold text-xs border-none focus:outline-none cursor-pointer"
-                      >
-                        <option value="ALL">Semua</option>
-                        <option value="AKTIF">AKTIF</option>
-                        <option value="NON_AKTIF">NON AKTIF</option>
-                      </select>
-                    </div>
-
-                    <div className="flex items-center bg-white border border-slate-200 rounded-lg px-2 py-1 shadow-sm">
-                      <span className="text-[10px] font-bold text-slate-400 mr-1">ENP:</span>
-                      <select 
-                        value={tableStatusEnpFilter} 
-                        onChange={(e) => setTableStatusEnpFilter(e.target.value)}
-                        className="bg-transparent text-slate-700 font-bold text-xs border-none focus:outline-none cursor-pointer"
-                      >
-                        <option value="ALL">Semua</option>
-                        {statusEnpList.map(st => (
-                          <option key={st} value={st}>{st}</option>
-                        ))}
-                      </select>
-                    </div>
-
-                    {(tableSearchTerm || tableWilayahFilter !== 'ALL' || tableKategoriFilter !== 'ALL' || tableStatusProjFilter !== 'ALL' || tableStatusEnpFilter !== 'ALL' || sortConfig.key !== null) && (
+                    <div className="flex items-center space-x-2">
                       <button 
-                        onClick={resetTableFilters}
-                        className="text-[10px] font-bold text-rose-600 hover:text-rose-800 bg-rose-50 hover:bg-rose-100 px-2.5 py-1 rounded-lg transition-all flex items-center space-x-1"
+                        onClick={exportProjectsToExcel}
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1 rounded-lg text-xs font-bold transition-all flex items-center space-x-1 shadow-sm"
+                        title="Export Tabel ke Excel"
                       >
-                        <i data-lucide="rotate-ccw" className="w-3 h-3"></i>
-                        <span>Reset</span>
+                        <i data-lucide="file-spreadsheet" className="w-3.5 h-3.5"></i>
+                        <span>Export Excel</span>
                       </button>
-                    )}
+
+                      <button 
+                        onClick={exportProjectsToPDF}
+                        className="bg-rose-600 hover:bg-rose-700 text-white px-3 py-1 rounded-lg text-xs font-bold transition-all flex items-center space-x-1 shadow-sm"
+                        title="Export Tabel ke PDF"
+                      >
+                        <i data-lucide="file-text" className="w-3.5 h-3.5"></i>
+                        <span>Export PDF</span>
+                      </button>
+                    </div>
                   </div>
 
-                  {/* TABEL RAMPUNG */}
-                  <div className="overflow-x-auto custom-scrollbar flex-1">
+                  <div className="overflow-x-auto overflow-y-auto custom-scrollbar flex-1">
                     <table className="w-full text-left text-xs text-slate-600">
-                      <thead className="bg-slate-50/90 text-slate-500 font-extrabold uppercase text-[9px] tracking-wider border-b border-slate-200 select-none">
+                      <thead className="bg-slate-50 text-slate-500 font-extrabold uppercase text-[9px] tracking-wider border-b border-slate-200 sticky top-0 z-10 select-none shadow-sm">
                         <tr>
+                          <th className="py-2.5 px-2 text-center w-10">No</th>
                           <th onClick={() => handleSort('namaProject')} className="py-2.5 px-3 cursor-pointer hover:bg-slate-100 transition-colors">
                             <div className="flex items-center space-x-1">
                               <span>Project & Kategori</span>
@@ -1674,13 +2460,13 @@
                           </th>
                           <th onClick={() => handleSort('alokasiEfs')} className="py-2.5 px-2.5 text-right cursor-pointer hover:bg-slate-100 transition-colors">
                             <div className="flex items-center justify-end space-x-1">
-                              <span>Alokasi EFS</span>
+                              <span>Alokasi EFS ({reportMonth})</span>
                               {renderSortIcon('alokasiEfs')}
                             </div>
                           </th>
                           <th onClick={() => handleSort('realisasi')} className="py-2.5 px-2.5 text-right cursor-pointer hover:bg-slate-100 transition-colors">
                             <div className="flex items-center justify-end space-x-1">
-                              <span>Realisasi</span>
+                              <span>Realisasi ({reportMonth})</span>
                               {renderSortIcon('realisasi')}
                             </div>
                           </th>
@@ -1715,17 +2501,18 @@
                           </tr>
                         ) : (
                           currentTableData.map((row, idx) => {
-                            let rowTotal = 0;
-                            MONTHS.forEach(m => { rowTotal += Number(row[m.toLowerCase()]) || 0; });
-                            
-                            const aloEfs = Number(row.alokasiEfs) || 0;
-                            const pctReal = aloEfs > 0 ? (rowTotal / aloEfs) * 100 : 0;
+                            const aloEfs = row.aloEfs !== undefined ? row.aloEfs : (Number(row.alokasiEfs) || 0);
+                            const rowTotal = row.totalReal !== undefined ? row.totalReal : 0;
+                            const pctReal = row.pctRealisasi !== undefined ? row.pctRealisasi : (aloEfs > 0 ? (rowTotal / aloEfs) * 100 : 0);
 
                             const isNonAktif = String(row.statusProject).toUpperCase() === 'NON AKTIF' || String(row.statusProject).toUpperCase() === 'DROPPED';
                             const isPenyesuaianEnp = String(row.statusEnp || '').toUpperCase() === 'PENYESUAIAN';
+                            
+                            const globalIndex = (currentPage - 1) * itemsPerPage + idx + 1;
 
                             return (
                               <tr key={idx} className="hover:bg-slate-50/80 transition-colors">
+                                <td className="py-2 px-2 text-center font-bold text-slate-400 text-[10px]">{globalIndex}</td>
                                 <td className="py-2 px-3 max-w-[210px]">
                                   <div className="flex flex-col space-y-0.5">
                                     <div className="flex items-center space-x-1.5">
@@ -1777,8 +2564,8 @@
                                   {formatSlimIDR(row.alokasiRevisiRbb)}
                                 </td>
 
-                                <td className="py-2 px-2.5 text-right font-semibold text-blue-700 whitespace-nowrap text-[11px]" title={formatIDR(row.alokasiEfs)}>
-                                  {formatSlimIDR(row.alokasiEfs)}
+                                <td className="py-2 px-2.5 text-right font-semibold text-blue-700 whitespace-nowrap text-[11px]" title={formatIDR(aloEfs)}>
+                                  {formatSlimIDR(aloEfs)}
                                 </td>
 
                                 <td className="py-2 px-2.5 text-right font-extrabold text-bni-orange whitespace-nowrap text-[11px]" title={formatIDR(rowTotal)}>
@@ -1839,7 +2626,6 @@
                     </table>
                   </div>
 
-                  {/* PAGINASI HALAMAN */}
                   {!loading && tableRows.length > 0 && (
                     <div className="p-3 border-t border-slate-100 bg-slate-50/50 flex flex-wrap items-center justify-between gap-3">
                       <div className="flex items-center space-x-3">
@@ -1912,7 +2698,6 @@
             </div>
           </main>
 
-          {/* MODAL POPUP DETAIL & INPUT REALISASI */}
           {selectedProjectForModal && (() => {
             const isNonAktif = String(selectedProjectForModal.statusProject || '').toUpperCase() === 'NON AKTIF' || String(selectedProjectForModal.statusProject || '').toUpperCase() === 'DROPPED';
             const isPenyesuaianEnp = String(selectedProjectForModal.statusEnp || '').toUpperCase() === 'PENYESUAIAN';
@@ -2022,7 +2807,7 @@
                           </div>
                           <div>
                             <span className="text-slate-400 font-bold block text-[10px] uppercase">m. Alokasi EFS</span>
-                            <p className="font-black text-blue-700 text-xs mt-0.5">{formatIDR(selectedProjectForModal.alokasiEfs)}</p>
+                            <p className="font-black text-blue-700 text-xs mt-0.5">{formatIDR(selectedProjectForModal.aloEfs || selectedProjectForModal.alokasiEfs)}</p>
                           </div>
                         </div>
                       </div>
@@ -2127,9 +2912,7 @@
             );
           })()}
 
-          {/* RUNNING TEXT TICKER DENGAN KECEPATAN DILAMBATKAN (85s) */}
           <footer className="fixed bottom-0 left-0 right-0 z-40 bg-slate-900 text-white shadow-2xl border-t border-slate-800 text-xs flex flex-col md:flex-row items-center justify-between overflow-hidden">
-            
             <div className="flex-1 w-full overflow-hidden relative py-2.5 px-4 bg-slate-950 flex items-center">
               <div className="bg-bni-orange text-white text-[10px] font-black px-2 py-0.5 rounded uppercase tracking-wider mr-3 shrink-0 z-10 shadow-sm flex items-center space-x-1">
                 <i data-lucide="activity" className="w-3 h-3"></i>
@@ -2141,30 +2924,26 @@
                   {(() => {
                     const renderTickerContent = () => (
                       <>
-                        {/* 1. TOTAL ALOKASI EFS */}
                         <div className="flex items-center space-x-2 bg-slate-900 border border-slate-800 px-3 py-1 rounded-lg">
-                          <span className="text-slate-400 text-[10px] uppercase font-bold">Total Alokasi EFS:</span>
+                          <span className="text-slate-400 text-[10px] uppercase font-bold">Total Alokasi EFS ({tickerStats.currentMonthName}):</span>
                           <span className="font-extrabold text-blue-400 text-xs">{formatCompactIDR(tickerStats.totalAlokasiEfs)}</span>
                         </div>
 
-                        {/* 2. REALISASI KUMULATIF JAN S.D BULAN BERJALAN */}
                         <div className="flex items-center space-x-2 bg-slate-900 border border-slate-800 px-3 py-1 rounded-lg">
-                          <span className="text-slate-400 text-[10px] uppercase font-bold">Realisasi (Jan - {tickerStats.currentMonthName}):</span>
+                          <span className="text-slate-400 text-[10px] uppercase font-bold">Realisasi ({tickerStats.currentMonthName}):</span>
                           <span className="font-extrabold text-amber-400 text-xs">{formatCompactIDR(tickerStats.totalKumulatifBulanBerjalan)}</span>
                         </div>
 
-                        {/* 3. % REALISASI TOTAL */}
                         <div className="flex items-center space-x-2 bg-slate-900 border border-slate-800 px-3 py-1 rounded-lg">
-                          <span className="text-slate-400 text-[10px] uppercase font-bold">% Realisasi Total:</span>
+                          <span className="text-slate-400 text-[10px] uppercase font-bold">% Realisasi Total ({tickerStats.currentMonthName}):</span>
                           <span className="font-extrabold text-emerald-400 text-xs">{tickerStats.pctRealisasiTotal}%</span>
                         </div>
 
                         <span className="text-slate-700 font-black">|</span>
 
-                        {/* 4. PENYERAPAN PER WILAYAH */}
                         <div className="flex items-center space-x-3">
                           <span className="font-extrabold text-bni-orange uppercase tracking-wider text-[11px] flex items-center space-x-1">
-                            <span>📍 Realisasi Per Wilayah:</span>
+                            <span>📍 Realisasi Per Wilayah ({tickerStats.currentMonthName}):</span>
                           </span>
                           {tickerStats.listWilayahPct.map((item, idx) => (
                             <span key={`wil-${idx}`} className="inline-flex items-center space-x-1.5 bg-slate-900 border border-slate-800 px-2.5 py-1 rounded-lg">
@@ -2181,10 +2960,9 @@
 
                         <span className="text-slate-700 font-black">|</span>
 
-                        {/* 5. TOP 10 PROJECT HIGH PERFORMANCE */}
                         <div className="flex items-center space-x-3">
                           <span className="font-extrabold text-emerald-400 uppercase tracking-wider text-[11px] flex items-center space-x-1">
-                            <span>🔥 Top 10 High Performance:</span>
+                            <span>🔥 Top 10 High Performance ({tickerStats.currentMonthName}):</span>
                           </span>
                           {top10ProjectsList.map((proj, idx) => (
                             <span key={`top-tick-${idx}`} className="inline-flex items-center space-x-1.5 bg-slate-900 border border-slate-800 px-2.5 py-1 rounded-lg">
@@ -2201,10 +2979,9 @@
 
                         <span className="text-slate-700 font-black">|</span>
 
-                        {/* 6. BOTTOM 10 PROJECT NEED ATTENTION */}
                         <div className="flex items-center space-x-3">
                           <span className="font-extrabold text-rose-400 uppercase tracking-wider text-[11px] flex items-center space-x-1">
-                            <span>⚠️ Bottom 10 Need Attention:</span>
+                            <span>⚠️ Bottom 10 Need Attention ({tickerStats.currentMonthName}):</span>
                           </span>
                           {bottom10ProjectsList.map((proj, idx) => (
                             <span key={`bot-tick-${idx}`} className="inline-flex items-center space-x-1.5 bg-slate-900 border border-slate-800 px-2.5 py-1 rounded-lg">
@@ -2238,9 +3015,8 @@
             </div>
 
             <div className="bg-slate-900 px-4 py-2 border-t md:border-t-0 md:border-l border-slate-800 shrink-0 text-slate-400 text-[11px] font-medium text-center">
-              Copyright © 2026 by <b className="text-slate-200 font-extrabold">Fajar Ramadhan - P052099</b> | Divisi NSD
+              Copyright © 2026 by <b className="text-slate-200 font-extrabold">Fajar Ramadhan[cite: 1] - P052099</b> | Divisi NSD
             </div>
-
           </footer>
 
         </div>
