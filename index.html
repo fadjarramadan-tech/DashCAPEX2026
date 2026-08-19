@@ -16,7 +16,7 @@
   <!-- Lucide Icons -->
   <script src="https://unpkg.com/lucide@latest"></script>
   
-  <!-- SheetJS (XLSX) untuk Export Excel -->
+  <!-- SheetJS (XLSX) untuk Export & Import Excel -->
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <!-- jsPDF & AutoTable untuk Export PDF -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -70,6 +70,30 @@
 
     const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbxf89NXCAtrjZn3bFdhtO45DfikiDn8SiYavFBDerqyzIBeUt8yiKAxXoSwOu24N9z-mA/exec";
     const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Ags', 'Sep', 'Okt', 'Nov', 'Des'];
+
+    const getEfsValue = (row, month) => {
+      if (!row) return 0;
+      const mKey = month.toLowerCase();
+      if (row[`efs_${mKey}`] !== undefined && row[`efs_${mKey}`] !== null) {
+        return Number(row[`efs_${mKey}`]) || 0;
+      }
+      if (row[`alokasi_efs_${mKey}`] !== undefined && row[`alokasi_efs_${mKey}`] !== null) {
+        return Number(row[`alokasi_efs_${mKey}`]) || 0;
+      }
+      if (row.aloEfs !== undefined && row.aloEfs !== null) {
+        return Number(row.aloEfs) || 0;
+      }
+      return Number(row.alokasiEfs) || 0;
+    };
+
+    const getCumulativeRealisasiValue = (row, month) => {
+      if (!row) return 0;
+      const mKey = month.toLowerCase();
+      if (row[mKey] !== undefined && row[mKey] !== null) {
+        return Number(row[mKey]) || 0;
+      }
+      return Number(row.realisasi) || 0;
+    };
 
     const formatIDR = (val) => {
       if (val === undefined || val === null || isNaN(val)) return 'Rp 0,00';
@@ -159,16 +183,8 @@
           else if (cat.toLowerCase().includes('kendaraan')) matchedCat = "Kendaraan";
 
           if (w && matchedCat && matrix[w] && matrix[w][matchedCat]) {
-            const mKey = reportMonth.toLowerCase();
-            const efs = Number(row[`efs_${mKey}`]) !== undefined ? Number(row[`efs_${mKey}`]) : (Number(row.alokasiEfs) || 0);
-            
-            const targetMonthIdx = MONTHS.indexOf(reportMonth);
-            let kumulatifReal = 0;
-            for (let i = 0; i <= targetMonthIdx; i++) {
-              kumulatifReal += Number(row[MONTHS[i].toLowerCase()]) || 0;
-            }
-            const valMonthVal = Number(row[mKey]) || 0;
-            const real = valMonthVal > kumulatifReal ? valMonthVal : kumulatifReal;
+            const efs = getEfsValue(row, reportMonth);
+            const real = getCumulativeRealisasiValue(row, reportMonth);
 
             matrix[w][matchedCat].alokasiEfs += efs;
             matrix[w][matchedCat].realisasi += real;
@@ -525,7 +541,453 @@
       );
     };
 
-    // KOMPONEN HISTORICAL ANALYSIS VIEW (DIPERBAIKI UNTUK KALKULASI KUMULATIF)
+    // KOMPONEN UNTUK HALAMAN UPLOAD DATA REPORT BULANAN BARU
+    const UploadMonthlyReportView = ({ existingProjects, onUpdateDatabase, onUploadSuccess }) => {
+      const [uploadMonth, setUploadMonth] = useState('Ags');
+      const [parsedData, setParsedData] = useState([]);
+      const [fileName, setFileName] = useState('');
+      const [isAnalyzing, setIsAnalyzing] = useState(false);
+      
+      const [isSubmitting, setIsSubmitting] = useState(false);
+      const [uploadProgress, setUploadProgress] = useState(0);
+      const [progressStatusText, setProgressStatusText] = useState('Memulai Sinkronisasi...');
+      const [filterMode, setFilterMode] = useState('ALL');
+
+      const existingProjectsMap = useMemo(() => {
+        const map = new Map();
+        existingProjects.forEach(p => {
+          if (p.projectNumber) {
+            const cleanKey = String(p.projectNumber).trim().toLowerCase();
+            map.set(cleanKey, p);
+          }
+        });
+        return map;
+      }, [existingProjects]);
+
+      const getColumnValue = (row, possibleHeaders) => {
+        const keys = Object.keys(row);
+        for (let ph of possibleHeaders) {
+          const matchedKey = keys.find(k => k.trim().toLowerCase() === ph.toLowerCase());
+          if (matchedKey && row[matchedKey] !== undefined && row[matchedKey] !== null) {
+            return row[matchedKey];
+          }
+        }
+        return null;
+      };
+
+      const handleFileUpload = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        setFileName(file.name);
+        setIsAnalyzing(true);
+
+        setTimeout(() => {
+          const reader = new FileReader();
+          reader.onload = (evt) => {
+            try {
+              const bstr = evt.target.result;
+              const wb = XLSX.read(bstr, { type: 'binary' });
+              const wsName = wb.SheetNames[0];
+              const ws = wb.Sheets[wsName];
+              const jsonData = XLSX.utils.sheet_to_json(ws);
+
+              const mKey = uploadMonth.toLowerCase();
+
+              const processed = jsonData.map((row, index) => {
+                const rawProjNum = getColumnValue(row, [
+                  'Project Number', 'PROJECT_NUMBER', 'projectNumber', 'NO_PROJECT', 'No Project', 'PROJECT NUMBER'
+                ]) || '';
+                const cleanProjNum = String(rawProjNum).trim();
+                const lookupKey = cleanProjNum.toLowerCase();
+
+                const dbRecord = existingProjectsMap.get(lookupKey);
+                const isNew = !dbRecord && cleanProjNum !== '';
+
+                const rawEfsExcel = getColumnValue(row, [
+                  `Alokasi EFS (${uploadMonth})`,
+                  `Alokasi EFS ${uploadMonth}`,
+                  `EFS ${uploadMonth}`,
+                  `EFS (${uploadMonth})`,
+                  `alokasi_efs_${mKey}`,
+                  `efs_${mKey}`,
+                  'Alokasi EFS',
+                  'ALOKASI_EFS',
+                  'EFS'
+                ]);
+                const valEfs = Number(String(rawEfsExcel || 0).replace(/[^0-9.-]+/g, "")) || 0;
+
+                const rawRealExcel = getColumnValue(row, [
+                  `Realisasi (${uploadMonth})`,
+                  `Realisasi ${uploadMonth}`,
+                  `Realisasi Bulan Ini`,
+                  `Realisasi`,
+                  `REALISASI`,
+                  mKey
+                ]);
+                const valReal = Number(String(rawRealExcel || 0).replace(/[^0-9.-]+/g, "")) || 0;
+
+                let namaProj = '-';
+                let wilUnit = '-';
+                let wil = 'Lainnya';
+                let opUnit = '-';
+                let kat = 'Bangunan Gedung';
+
+                if (!isNew && dbRecord) {
+                  namaProj = dbRecord.namaProject || '-';
+                  wilUnit = `${dbRecord.wilayah || '-'} - ${dbRecord.operatingUnit || '-'}`;
+                  wil = dbRecord.wilayah || 'Lainnya';
+                  opUnit = dbRecord.operatingUnit || '-';
+                  kat = dbRecord.kategori || 'Bangunan Gedung';
+                } else {
+                  const excelNama = getColumnValue(row, ['Nama Project', 'NAMA_PROJECT', 'Nama Proyek', 'NAMA PROYEK']);
+                  const excelWil = getColumnValue(row, ['Wilayah', 'WILAYAH']);
+                  const excelUnit = getColumnValue(row, ['Operating Unit', 'OPERATING_UNIT', 'Unit Kerja']);
+                  const excelKat = getColumnValue(row, ['Kategori', 'KATEGORI']);
+                  
+                  if (excelNama) namaProj = String(excelNama).trim();
+                  if (excelWil) wil = String(excelWil).trim();
+                  if (excelUnit) opUnit = String(excelUnit).trim();
+                  if (excelKat) kat = String(excelKat).trim();
+                  wilUnit = `${wil} - ${opUnit}`;
+                }
+
+                return {
+                  id: index + 1,
+                  projectNumber: cleanProjNum || '-',
+                  namaProject: namaProj,
+                  wilayah: wil,
+                  operatingUnit: opUnit,
+                  kategori: kat,
+                  wilayahUnit: wilUnit,
+                  alokasiEfs: valEfs,
+                  realisasiBulan: valReal,
+                  isNewProject: isNew,
+                  dbRecord: dbRecord
+                };
+              });
+
+              setParsedData(processed);
+            } catch (err) {
+              alert("Gagal membaca file spreadsheet! Pastikan format file sesuai.");
+              console.error(err);
+            } finally {
+              setIsAnalyzing(false);
+            }
+          };
+
+          reader.readAsBinaryString(file);
+        }, 50);
+      };
+
+      const uploadSummary = useMemo(() => {
+        let totalNew = 0;
+        let totalExisting = 0;
+        let totalEfsVal = 0;
+        let totalRealVal = 0;
+
+        parsedData.forEach(item => {
+          if (item.isNewProject) totalNew++;
+          else totalExisting++;
+          totalEfsVal += item.alokasiEfs;
+          totalRealVal += item.realisasiBulan;
+        });
+
+        return {
+          totalRows: parsedData.length,
+          totalNew,
+          totalExisting,
+          totalEfsVal,
+          totalRealVal
+        };
+      }, [parsedData]);
+
+      const displayList = useMemo(() => {
+        if (filterMode === 'NEW') return parsedData.filter(d => d.isNewProject);
+        if (filterMode === 'EXISTING') return parsedData.filter(d => !d.isNewProject);
+        return parsedData;
+      }, [parsedData, filterMode]);
+
+      const handleConfirmUpload = () => {
+        if (parsedData.length === 0) return;
+        setIsSubmitting(true);
+        setUploadProgress(5);
+        setProgressStatusText('Menyiapkan payload data laporan...');
+
+        const mKey = uploadMonth.toLowerCase();
+
+        const progressTimer = setInterval(() => {
+          setUploadProgress(prev => {
+            if (prev < 40) {
+              setProgressStatusText('Menyelaraskan data Project Number Baru & Eksisting...');
+              return prev + 12;
+            } else if (prev < 80) {
+              setProgressStatusText('Menulis ke Sheet ALOKASI & REALISASI Google Sheets...');
+              return prev + 8;
+            } else if (prev < 95) {
+              setProgressStatusText('Menyelesaikan verifikasi data backend...');
+              return prev + 3;
+            }
+            return prev;
+          });
+        }, 180);
+
+        const onBackendSuccess = (res) => {
+          clearInterval(progressTimer);
+          setUploadProgress(100);
+          setProgressStatusText('Proses Penyimpanan Selesai 100%!');
+
+          setTimeout(() => {
+            setIsSubmitting(false);
+            if (onUpdateDatabase) {
+              onUpdateDatabase(parsedData, mKey);
+            }
+            alert(`Berhasil mengunggah & menyimpan data Laporan Bulan ${uploadMonth} 2026 ke Google Sheets!`);
+            if (onUploadSuccess) onUploadSuccess();
+          }, 500);
+        };
+
+        if (typeof google !== 'undefined' && google.script && google.script.run) {
+          google.script.run
+            .withSuccessHandler(onBackendSuccess)
+            .withFailureHandler((err) => {
+              clearInterval(progressTimer);
+              setIsSubmitting(false);
+              alert("Gagal menyimpan ke Google Sheets backend: " + err.message);
+            })
+            .uploadMonthlyReportData(parsedData, mKey);
+        } else {
+          fetch(WEB_APP_URL, {
+            method: 'POST',
+            mode: 'no-cors',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'uploadMonthlyReport',
+              uploadData: parsedData,
+              monthKey: mKey
+            })
+          })
+          .then(() => {
+            onBackendSuccess({ success: true });
+          })
+          .catch((err) => {
+            clearInterval(progressTimer);
+            setIsSubmitting(false);
+            alert("Gagal mengirim data upload: " + err.toString());
+          });
+        }
+      };
+
+      return (
+        <div className="space-y-6 animate-fadeIn relative">
+          
+          {isSubmitting && (
+            <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-4 animate-fadeIn">
+              <div className="bg-white p-6 rounded-2xl shadow-2xl max-w-md w-full border border-slate-100 space-y-4">
+                <div className="flex items-center space-x-3 border-b pb-3 border-slate-100">
+                  <div className="p-2.5 bg-bni-orange/10 rounded-xl text-bni-orange">
+                    <i data-lucide="loader-2" className="w-6 h-6 animate-spin"></i>
+                  </div>
+                  <div>
+                    <h4 className="font-extrabold text-slate-800 text-sm">Proses Update Data Bulan {uploadMonth}</h4>
+                    <p className="text-[11px] text-slate-400">Sinkronisasi Database Google Sheets</p>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex justify-between items-center text-xs font-bold">
+                    <span className="text-slate-600">{progressStatusText}</span>
+                    <span className="text-bni-orange">{uploadProgress}%</span>
+                  </div>
+
+                  <div className="w-full bg-slate-100 h-3 rounded-full overflow-hidden p-0.5 border border-slate-200">
+                    <div 
+                      className="bg-gradient-to-r from-bni-teal to-bni-orange h-full rounded-full transition-all duration-300 shadow-sm"
+                      style={{ width: `${uploadProgress}%` }}
+                    ></div>
+                  </div>
+                </div>
+
+                <p className="text-[10px] text-slate-400 text-center italic pt-1">
+                  Mohon jangan menutup halaman saat proses sinkronisasi berlangsung.
+                </p>
+              </div>
+            </div>
+          )}
+
+          <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-sm space-y-4">
+            <div className="flex items-center justify-between border-b pb-3 border-slate-100">
+              <div>
+                <h4 className="font-extrabold text-slate-800 text-base flex items-center space-x-2">
+                  <i data-lucide="file-up" className="w-5 h-5 text-bni-orange"></i>
+                  <span>Upload & Auto-Generate Data Laporan Bulanan Baru</span>
+                </h4>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Sistem akan secara otomatis membandingkan Project Number pada berkas upload dengan database historis bulan sebelumnya.
+                </p>
+              </div>
+              <span className="text-xs font-black text-bni-teal bg-bni-teal-subtle px-3 py-1 rounded-full border border-teal-200">
+                Data Detector Active
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-600 block">Pilih Bulan Laporan Baru:</label>
+                <select 
+                  value={uploadMonth} 
+                  onChange={e => setUploadMonth(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 text-slate-800 font-bold text-xs p-2.5 rounded-xl focus:outline-none focus:border-bni-teal"
+                >
+                  {MONTHS.map(m => (
+                    <option key={m} value={m}>{m} 2026</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="md:col-span-2 space-y-1.5">
+                <label className="text-xs font-bold text-slate-600 block">File Excel / CSV Laporan Bulan Terbaru:</label>
+                <div className="relative flex items-center">
+                  <input 
+                    type="file" 
+                    accept=".xlsx, .xls, .csv" 
+                    onChange={handleFileUpload}
+                    className="w-full text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-bni-teal file:text-white hover:file:bg-bni-teal-dark cursor-pointer bg-slate-50 border border-slate-200 rounded-xl"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {isAnalyzing && (
+            <div className="bg-white p-12 rounded-2xl border border-slate-200 text-center space-y-3">
+              <i data-lucide="loader-2" className="w-8 h-8 animate-spin text-bni-teal mx-auto"></i>
+              <p className="text-xs font-bold text-slate-600">Menganalisis file & mendeteksi Project Number baru...</p>
+            </div>
+          )}
+
+          {parsedData.length > 0 && !isAnalyzing && (
+            <div className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase block">Total Proyek Di-upload</span>
+                  <span className="text-2xl font-black text-slate-800 mt-1 block">{uploadSummary.totalRows}</span>
+                  <span className="text-[10px] text-slate-400">Proyek tercatat dalam file</span>
+                </div>
+
+                <div className="bg-amber-50/80 p-4 rounded-2xl border border-amber-200 shadow-sm">
+                  <span className="text-[10px] font-bold text-amber-800 uppercase block">Project Number Baru Terdeteksi</span>
+                  <div className="flex items-center justify-between mt-1">
+                    <span className="text-2xl font-black text-amber-900">{uploadSummary.totalNew}</span>
+                    <span className="bg-amber-200 text-amber-900 font-extrabold text-[9px] px-2 py-0.5 rounded-full">Belum Ada Sebelumnya</span>
+                  </div>
+                  <span className="text-[10px] text-amber-700 block mt-0.5">Otomatis Ditambahkan ke Laporan</span>
+                </div>
+
+                <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase block">Proyek Eksisting (Lama)</span>
+                  <span className="text-2xl font-black text-blue-700 mt-1 block">{uploadSummary.totalExisting}</span>
+                  <span className="text-[10px] text-slate-400">Tercatat pada laporan lalu</span>
+                </div>
+
+                <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase block">Total Alokasi EFS ({uploadMonth})</span>
+                  <span className="text-lg font-black text-bni-teal mt-1 block">{formatCompactIDR(uploadSummary.totalEfsVal)}</span>
+                  <span className="text-[10px] text-slate-400">{formatIDR(uploadSummary.totalEfsVal)}</span>
+                </div>
+              </div>
+
+              <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm flex flex-col overflow-hidden">
+                <div className="p-4 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3 bg-slate-50/50">
+                  <div>
+                    <h5 className="font-extrabold text-slate-800 text-sm">Pratinjau (Preview) & Hasil Deteksi Otomatis</h5>
+                    <p className="text-xs text-slate-400">Menampilkan rincian data hasil auto-generate sebelum disimpan ke sistem</p>
+                  </div>
+
+                  <div className="flex items-center space-x-2">
+                    <button 
+                      onClick={() => setFilterMode('ALL')}
+                      className={`px-3 py-1 rounded-lg text-xs font-bold ${filterMode === 'ALL' ? 'bg-bni-teal text-white' : 'bg-slate-100 text-slate-600'}`}
+                    >
+                      Semua ({parsedData.length})
+                    </button>
+                    <button 
+                      onClick={() => setFilterMode('NEW')}
+                      className={`px-3 py-1 rounded-lg text-xs font-bold ${filterMode === 'NEW' ? 'bg-amber-600 text-white' : 'bg-amber-50 text-amber-800 border border-amber-200'}`}
+                    >
+                      Proyek Baru ({uploadSummary.totalNew})
+                    </button>
+                    <button 
+                      onClick={() => setFilterMode('EXISTING')}
+                      className={`px-3 py-1 rounded-lg text-xs font-bold ${filterMode === 'EXISTING' ? 'bg-slate-700 text-white' : 'bg-slate-100 text-slate-600'}`}
+                    >
+                      Proyek Eksisting ({uploadSummary.totalExisting})
+                    </button>
+                  </div>
+                </div>
+
+                <div className="overflow-x-auto max-h-[400px] custom-scrollbar">
+                  <table className="w-full text-left text-xs text-slate-600">
+                    <thead className="bg-slate-100 text-slate-600 font-extrabold uppercase text-[9px] sticky top-0 border-b border-slate-200">
+                      <tr>
+                        <th className="py-2.5 px-3 text-center">No</th>
+                        <th className="py-2.5 px-3">Status Deteksi</th>
+                        <th className="py-2.5 px-3">Project Number</th>
+                        <th className="py-2.5 px-3">Nama Project</th>
+                        <th className="py-2.5 px-3">Wilayah / Unit</th>
+                        <th className="py-2.5 px-3 text-right">Alokasi EFS ({uploadMonth})</th>
+                        <th className="py-2.5 px-3 text-right">Realisasi Kumulatif ({uploadMonth})</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {displayList.map((row, idx) => (
+                        <tr key={idx} className={row.isNewProject ? "bg-amber-50/40 hover:bg-amber-50 transition-colors" : "hover:bg-slate-50 transition-colors"}>
+                          <td className="py-2 px-3 text-center font-bold text-slate-400">{idx + 1}</td>
+                          <td className="py-2 px-3">
+                            {row.isNewProject ? (
+                              <span className="bg-amber-100 text-amber-800 font-black text-[9px] px-2 py-0.5 rounded-full border border-amber-300 inline-flex items-center space-x-1">
+                                <i data-lucide="sparkles" className="w-3 h-3"></i>
+                                <span>PROYEK BARU</span>
+                              </span>
+                            ) : (
+                              <span className="bg-slate-100 text-slate-500 font-bold text-[9px] px-2 py-0.5 rounded-full">
+                                EKSISTING
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-2 px-3 font-extrabold text-bni-teal">{row.projectNumber}</td>
+                          <td className="py-2 px-3 font-bold text-slate-800">{row.namaProject}</td>
+                          <td className="py-2 px-3">{row.wilayahUnit}</td>
+                          <td className="py-2 px-3 text-right font-semibold text-blue-700">{formatSlimIDR(row.alokasiEfs)}</td>
+                          <td className="py-2 px-3 text-right font-extrabold text-bni-orange">{formatSlimIDR(row.realisasiBulan)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
+                  <span className="text-xs text-slate-500 font-medium">
+                    File: <b className="text-slate-800">{fileName}</b> ({parsedData.length} Baris Data)
+                  </span>
+
+                  <button 
+                    onClick={handleConfirmUpload}
+                    disabled={isSubmitting}
+                    className="bg-bni-orange hover:bg-bni-orange-dark text-white font-bold px-6 py-2.5 rounded-xl text-xs transition-all shadow-md flex items-center space-x-2 disabled:opacity-50 cursor-pointer"
+                  >
+                    <i data-lucide="check-circle-2" className="w-4 h-4"></i>
+                    <span>Konfirmasi & Simpan Laporan {uploadMonth}</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    };
+
+    // KOMPONEN HISTORICAL ANALYSIS VIEW
     const HistoricalAnalysisView = ({ data }) => {
       const [m1, setM1] = useState('Jun');
       const [m2, setM2] = useState('Jul');
@@ -536,23 +998,14 @@
       const canvasHistRef = useRef(null);
       const chartHistRef = useRef(null);
 
-      // Monthly Kumulatif Aggregates
       const monthlySummary = useMemo(() => {
-        const result = MONTHS.map((m, mIdx) => {
-          const key = m.toLowerCase();
+        const result = MONTHS.map((m) => {
           let efsTot = 0;
           let realTot = 0;
 
           data.forEach(item => {
-            efsTot += Number(item[`efs_${key}`]) !== undefined ? Number(item[`efs_${key}`]) : (Number(item.alokasiEfs) || 0);
-            
-            // Hitung kumulatif Jan s/d Bulan m
-            let kumulatifRowReal = 0;
-            for (let i = 0; i <= mIdx; i++) {
-              kumulatifRowReal += Number(item[MONTHS[i].toLowerCase()]) || 0;
-            }
-            const valMonthVal = Number(item[key]) || 0;
-            realTot += (valMonthVal > kumulatifRowReal ? valMonthVal : kumulatifRowReal);
+            efsTot += getEfsValue(item, m);
+            realTot += getCumulativeRealisasiValue(item, m);
           });
 
           const pct = efsTot > 0 ? (realTot / efsTot) * 100 : 0;
@@ -645,35 +1098,14 @@
           : <span className="ml-1 text-bni-teal font-extrabold">▼</span>;
       };
 
-      // Projects Variance comparison M1 vs M2 dengan kalkulasi kumulatif
       const varianceData = useMemo(() => {
-        const idx1 = MONTHS.indexOf(m1);
-        const idx2 = MONTHS.indexOf(m2);
-
-        const k1 = m1.toLowerCase();
-        const k2 = m2.toLowerCase();
-
         let list = data.map(item => {
-          const efs1 = Number(item[`efs_${k1}`]) !== undefined ? Number(item[`efs_${k1}`]) : (Number(item.alokasiEfs) || 0);
-          const efs2 = Number(item[`efs_${k2}`]) !== undefined ? Number(item[`efs_${k2}`]) : (Number(item.alokasiEfs) || 0);
+          const efs1 = getEfsValue(item, m1);
+          const efs2 = getEfsValue(item, m2);
           const diffEfs = efs2 - efs1;
 
-          // Realisasi Kumulatif M1
-          let kumulatifReal1 = 0;
-          for (let i = 0; i <= idx1; i++) {
-            kumulatifReal1 += Number(item[MONTHS[i].toLowerCase()]) || 0;
-          }
-          const val1 = Number(item[k1]) || 0;
-          const real1 = val1 > kumulatifReal1 ? val1 : kumulatifReal1;
-
-          // Realisasi Kumulatif M2
-          let kumulatifReal2 = 0;
-          for (let i = 0; i <= idx2; i++) {
-            kumulatifReal2 += Number(item[MONTHS[i].toLowerCase()]) || 0;
-          }
-          const val2 = Number(item[k2]) || 0;
-          const real2 = val2 > kumulatifReal2 ? val2 : kumulatifReal2;
-
+          const real1 = getCumulativeRealisasiValue(item, m1);
+          const real2 = getCumulativeRealisasiValue(item, m2);
           const diffReal = real2 - real1;
 
           return {
@@ -807,7 +1239,7 @@
                   <i data-lucide="line-chart" className="w-4 h-4 text-bni-teal"></i>
                   <span>Tren Historical Alokasi EFS vs Realisasi Kumulatif Bulanan</span>
                 </h4>
-                <p className="text-xs text-slate-400">Monitoring pergerakan dinamis alokasi anggaran investasi dan tingkat penyerapan kumulatif per bulan</p>
+                <p className="text-xs text-slate-400">Monitoring pergerakan dinamis alokasi anggaran investasi dan tingkat penyerapan per bulan</p>
               </div>
               <span className="text-[10px] font-bold text-bni-teal bg-bni-teal-subtle px-2.5 py-1 rounded-full">Jan - Des 2026</span>
             </div>
@@ -1104,12 +1536,9 @@
       }, []);
 
       useEffect(() => {
-        const timer = setTimeout(() => {
-          if (window.lucide) {
-            window.lucide.createIcons();
-          }
-        }, 120);
-        return () => clearTimeout(timer);
+        if (window.lucide) {
+          window.lucide.createIcons();
+        }
       }, [activeTab, currentPage, loading, selectedProjectForModal]);
 
       useEffect(() => {
@@ -1143,6 +1572,57 @@
               console.error("Gagal memuat data:", err);
               setLoading(false);
             });
+        }
+      };
+
+      const handleUpdateDatabaseFromUpload = (uploadItems, monthKey) => {
+        setRawData(prevData => {
+          const updatedList = [...prevData];
+          const dbMap = new Map();
+          
+          updatedList.forEach((item, index) => {
+            if (item.projectNumber) {
+              dbMap.set(String(item.projectNumber).trim().toLowerCase(), index);
+            }
+          });
+
+          uploadItems.forEach(uItem => {
+            const key = String(uItem.projectNumber).trim().toLowerCase();
+            if (dbMap.has(key)) {
+              const idx = dbMap.get(key);
+              updatedList[idx] = {
+                ...updatedList[idx],
+                [`efs_${monthKey}`]: uItem.alokasiEfs,
+                alokasiEfs: uItem.alokasiEfs,
+                [monthKey]: uItem.realisasiBulan
+              };
+            } else {
+              const newProjObj = {
+                rowId: `NEW_${Date.now()}_${Math.random()}`,
+                projectNumber: uItem.projectNumber,
+                namaProject: uItem.namaProject || '-',
+                wilayah: uItem.wilayah || 'Lainnya',
+                operatingUnit: uItem.operatingUnit || '-',
+                kategori: uItem.kategori || 'Bangunan Gedung',
+                typeGroup: 'WILAYAH',
+                statusProject: 'AKTIF',
+                statusEnp: 'OK',
+                alokasiAwal: 0,
+                alokasiRevisiRbb: 0,
+                alokasiEfs: uItem.alokasiEfs,
+                [`efs_${monthKey}`]: uItem.alokasiEfs,
+                [monthKey]: uItem.realisasiBulan
+              };
+              updatedList.push(newProjObj);
+            }
+          });
+
+          return updatedList;
+        });
+
+        const matchedMonth = MONTHS.find(m => m.toLowerCase() === monthKey);
+        if (matchedMonth) {
+          setReportMonth(matchedMonth);
         }
       };
 
@@ -1235,7 +1715,7 @@
       };
 
       const activeSourceData = useMemo(() => {
-        if (activeTab === 'Perabotan Non Otomasi') {
+        if (activeTab === 'Perabotan Non Otomasi' && detailNonOtomasiData.length > 0) {
           return detailNonOtomasiData;
         }
         return rawData;
@@ -1281,12 +1761,12 @@
           const matchWilayah = selectedWilayah === 'ALL' || item.wilayah === selectedWilayah;
           
           let matchKategori = true;
-          if (activeTab !== 'overview' && activeTab !== 'historical' && activeTab !== 'Perabotan Non Otomasi') {
-            let cat = item.kategori || '';
-            if (activeTab === 'Bangunan Gedung') matchKategori = cat.toLowerCase().includes('bangunan');
-            else if (activeTab === 'Tanah') matchKategori = cat.toLowerCase().includes('tanah');
-            else if (activeTab === 'Perabotan Otomasi') matchKategori = cat.toLowerCase().includes('otomasi') && !cat.toLowerCase().includes('non');
-            else if (activeTab === 'Kendaraan') matchKategori = cat.toLowerCase().includes('kendaraan');
+          if (activeTab !== 'overview' && activeTab !== 'historical' && activeTab !== 'upload' && activeTab !== 'Perabotan Non Otomasi') {
+            let cat = (item.kategori || '').toLowerCase();
+            if (activeTab === 'Bangunan Gedung') matchKategori = cat.includes('bangunan') || cat.includes('gedung');
+            else if (activeTab === 'Tanah') matchKategori = cat.includes('tanah');
+            else if (activeTab === 'Perabotan Otomasi') matchKategori = cat.includes('otomasi') && !cat.includes('non');
+            else if (activeTab === 'Kendaraan') matchKategori = cat.includes('kendaraan');
           }
 
           let matchUnit = true;
@@ -1310,31 +1790,15 @@
         let totalAktif = 0;
         let totalNonAktif = 0;
 
-        const targetMonthIdx = MONTHS.indexOf(reportMonth);
-        const mKey = reportMonth.toLowerCase();
-
-        const monthlyData = {};
-        MONTHS.forEach(m => monthlyData[m.toLowerCase()] = 0);
-
         filteredData.forEach(row => {
           sumAlokasiAwal += Number(row.alokasiAwal) || 0;
           sumAlokasiRevisiRbb += Number(row.alokasiRevisiRbb) || 0;
 
-          const efsVal = Number(row[`efs_${mKey}`]) !== undefined ? Number(row[`efs_${mKey}`]) : (Number(row.alokasiEfs) || 0);
+          const efsVal = getEfsValue(row, reportMonth);
           sumAlokasiEfs += efsVal;
 
-          let kumulatifRowReal = 0;
-          for (let i = 0; i <= targetMonthIdx; i++) {
-            kumulatifRowReal += Number(row[MONTHS[i].toLowerCase()]) || 0;
-          }
-
-          const valMonthVal = Number(row[mKey]) || 0;
-          const finalRealVal = valMonthVal > kumulatifRowReal ? valMonthVal : kumulatifRowReal;
-          totalRealisasi += finalRealVal;
-
-          MONTHS.forEach(m => {
-            monthlyData[m.toLowerCase()] += Number(row[m.toLowerCase()]) || 0;
-          });
+          const realVal = getCumulativeRealisasiValue(row, reportMonth);
+          totalRealisasi += realVal;
 
           totalProject += 1;
           if (String(row.statusProject).toUpperCase() === 'NON AKTIF' || String(row.statusProject).toUpperCase() === 'DROPPED') {
@@ -1356,24 +1820,14 @@
           pctTotal, 
           totalProject, 
           totalAktif, 
-          totalNonAktif,
-          monthlyData
+          totalNonAktif
         };
       }, [filteredData, reportMonth]);
 
       const mappedProjectsData = useMemo(() => {
-        const targetMonthIdx = MONTHS.indexOf(reportMonth);
-        const mKey = reportMonth.toLowerCase();
-
         return filteredData.map(row => {
-          const aloEfs = Number(row[`efs_${mKey}`]) !== undefined ? Number(row[`efs_${mKey}`]) : (Number(row.alokasiEfs) || 0);
-          
-          let kumulatifReal = 0;
-          for (let i = 0; i <= targetMonthIdx; i++) {
-            kumulatifReal += Number(row[MONTHS[i].toLowerCase()]) || 0;
-          }
-          const valMonthVal = Number(row[mKey]) || 0;
-          const finalTotalReal = valMonthVal > kumulatifReal ? valMonthVal : kumulatifReal;
+          const aloEfs = getEfsValue(row, reportMonth);
+          const finalTotalReal = getCumulativeRealisasiValue(row, reportMonth);
 
           const pct = aloEfs > 0 ? (finalTotalReal / aloEfs) * 100 : 0;
 
@@ -1430,22 +1884,14 @@
       }, [mappedProjectsData, bottomSearchTerm]);
 
       const tickerStats = useMemo(() => {
-        const targetMonthIdx = MONTHS.indexOf(reportMonth);
-        const mKey = reportMonth.toLowerCase();
         let totalAlokasiEfs = 0;
         let totalRealisasiFilter = 0;
 
         const mapWilayahPct = {};
 
         rawData.forEach(row => {
-          const efs = Number(row[`efs_${mKey}`]) !== undefined ? Number(row[`efs_${mKey}`]) : (Number(row.alokasiEfs) || 0);
-          
-          let kumulatifReal = 0;
-          for (let i = 0; i <= targetMonthIdx; i++) {
-            kumulatifReal += Number(row[MONTHS[i].toLowerCase()]) || 0;
-          }
-          const valMonthVal = Number(row[mKey]) || 0;
-          const real = valMonthVal > kumulatifReal ? valMonthVal : kumulatifReal;
+          const efs = getEfsValue(row, reportMonth);
+          const real = getCumulativeRealisasiValue(row, reportMonth);
 
           totalAlokasiEfs += efs;
           totalRealisasiFilter += real;
@@ -1484,8 +1930,6 @@
           summary[c] = { alokasi: 0, realisasi: 0, totalProject: 0, aktif: 0, nonAktif: 0 };
         });
 
-        const targetMonthIdx = MONTHS.indexOf(reportMonth);
-
         rawData.forEach(row => {
           let cat = (row.kategori || '').toLowerCase().trim();
           let matchedCat = null;
@@ -1497,15 +1941,8 @@
           else if (cat.includes('kendaraan') || cat.includes('mobil') || cat.includes('motor')) matchedCat = "Kendaraan";
 
           if (matchedCat && summary[matchedCat]) {
-            const mKey = reportMonth.toLowerCase();
-            const pagu = Number(row[`efs_${mKey}`]) !== undefined ? Number(row[`efs_${mKey}`]) : (Number(row.alokasiEfs) || 0);
-            
-            let kumulatifReal = 0;
-            for (let i = 0; i <= targetMonthIdx; i++) {
-              kumulatifReal += Number(row[MONTHS[i].toLowerCase()]) || 0;
-            }
-            const valMonthVal = Number(row[mKey]) || 0;
-            const rowReal = valMonthVal > kumulatifReal ? valMonthVal : kumulatifReal;
+            const pagu = getEfsValue(row, reportMonth);
+            const rowReal = getCumulativeRealisasiValue(row, reportMonth);
 
             summary[matchedCat].alokasi += pagu;
             summary[matchedCat].realisasi += rowReal;
@@ -1524,22 +1961,14 @@
 
       const mirrorChartData = useMemo(() => {
         const mapWilayah = {};
-        const targetMonthIdx = MONTHS.indexOf(reportMonth);
 
         rawData.forEach(row => {
           const w = row.wilayah || 'Lainnya';
           if (!mapWilayah[w]) mapWilayah[w] = { alokasi: 0, realisasi: 0, alokasiEfs: 0 };
 
           const paguAwal = Number(row.alokasiAwal) || 0;
-          const mKey = reportMonth.toLowerCase();
-          const paguEfs = Number(row[`efs_${mKey}`]) !== undefined ? Number(row[`efs_${mKey}`]) : (Number(row.alokasiEfs) || 0);
-          
-          let kumulatifReal = 0;
-          for (let i = 0; i <= targetMonthIdx; i++) {
-            kumulatifReal += Number(row[MONTHS[i].toLowerCase()]) || 0;
-          }
-          const valMonthVal = Number(row[mKey]) || 0;
-          const rowReal = valMonthVal > kumulatifReal ? valMonthVal : kumulatifReal;
+          const paguEfs = getEfsValue(row, reportMonth);
+          const rowReal = getCumulativeRealisasiValue(row, reportMonth);
 
           mapWilayah[w].alokasi += paguAwal;
           mapWilayah[w].alokasiEfs += paguEfs;
@@ -1571,6 +2000,7 @@
         setSortConfig({ key, direction });
       };
 
+      // PERBAIKAN UTAMA: LOGIKA SORTING TABEL PROYEK DIPERBAIKI PRESISI
       const tableRows = useMemo(() => {
         let data = mappedProjectsData.filter(row => {
           if (tableSearchTerm) {
@@ -1611,14 +2041,26 @@
             let aVal, bVal;
 
             if (sortConfig.key === 'realisasi') {
-              aVal = a.totalReal;
-              bVal = b.totalReal;
+              aVal = Number(a.totalReal) || 0;
+              bVal = Number(b.totalReal) || 0;
             } else if (sortConfig.key === 'alokasiEfs') {
-              aVal = a.aloEfs;
-              bVal = b.aloEfs;
+              aVal = Number(a.aloEfs) || 0;
+              bVal = Number(b.aloEfs) || 0;
             } else if (sortConfig.key === 'pctRealisasi') {
-              aVal = a.pctRealisasi;
-              bVal = b.pctRealisasi;
+              aVal = Number(a.pctRealisasi) || 0;
+              bVal = Number(b.pctRealisasi) || 0;
+            } else if (sortConfig.key === 'enpAwal') {
+              aVal = Number(a.enpAwal) || 0;
+              bVal = Number(b.enpAwal) || 0;
+            } else if (sortConfig.key === 'alokasiAwal') {
+              aVal = Number(a.alokasiAwal) || 0;
+              bVal = Number(b.alokasiAwal) || 0;
+            } else if (sortConfig.key === 'alokasiRevisiRbb') {
+              aVal = Number(a.alokasiRevisiRbb) || 0;
+              bVal = Number(b.alokasiRevisiRbb) || 0;
+            } else if (sortConfig.key === 'qty') {
+              aVal = Number(a.qty) || 0;
+              bVal = Number(b.qty) || 0;
             } else {
               aVal = a[sortConfig.key];
               bVal = b[sortConfig.key];
@@ -1669,7 +2111,7 @@
             "Alokasi Awal": row.alokasiAwal || 0,
             "Revisi RBB": row.alokasiRevisiRbb || 0,
             [`Alokasi EFS (${reportMonth})`]: row.aloEfs || 0,
-            [`Realisasi (${reportMonth})`]: row.totalReal || 0,
+            [`Realisasi Kumulatif (${reportMonth})`]: row.totalReal || 0,
             "% Realisasi": row.pctRealisasi ? Number(row.pctRealisasi.toFixed(2)) : 0,
             "Status": row.statusProject || 'AKTIF'
           };
@@ -1690,7 +2132,7 @@
         doc.setFontSize(9);
         doc.text(`Tanggal Cetak: ${new Date().toLocaleDateString('id-ID')}`, 14, 21);
 
-        const tableColumn = ["No", "Project Number", "Nama Project", "Wilayah", "Alokasi Awal", `EFS (${reportMonth})`, `Realisasi (${reportMonth})`, "% Real", "Status"];
+        const tableColumn = ["No", "Project Number", "Nama Project", "Wilayah", "Alokasi Awal", `EFS (${reportMonth})`, `Realisasi Kum. (${reportMonth})`, "% Real", "Status"];
         const tableDataRows = tableRows.map((row, index) => [
           index + 1,
           row.projectNumber || '-',
@@ -1791,11 +2233,23 @@
                       <span>Historical & Variance</span>
                     </button>
 
-                    <div className="space-y-1">
+                    <button 
+                      onClick={() => setActiveTab('upload')}
+                      className={`w-full flex items-center space-x-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all ${
+                        activeTab === 'upload' 
+                          ? 'bg-bni-orange text-white shadow-sm' 
+                          : 'text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200/60'
+                      }`}
+                    >
+                      <i data-lucide="file-up" className="w-4 h-4"></i>
+                      <span>Upload Laporan Baru</span>
+                    </button>
+
+                    <div className="space-y-1 pt-2">
                       <button 
                         onClick={() => setProjectsMenuOpen(!projectsMenuOpen)}
                         className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-all ${
-                          (activeTab !== 'overview' && activeTab !== 'historical') 
+                          (activeTab !== 'overview' && activeTab !== 'historical' && activeTab !== 'upload') 
                             ? 'bg-bni-teal/10 text-bni-teal font-bold' 
                             : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800'
                         }`}
@@ -1912,18 +2366,18 @@
                     <span>General</span>
                     <i data-lucide="chevron-right" className="w-3 h-3"></i>
                     <span className="text-bni-teal font-bold capitalize">
-                      {activeTab === 'overview' ? 'Overview' : activeTab === 'historical' ? 'Historical Analytics' : `Projects / ${activeTab}`}
+                      {activeTab === 'overview' ? 'Overview' : activeTab === 'historical' ? 'Historical Analytics' : activeTab === 'upload' ? 'Upload Laporan Bulanan' : `Projects / ${activeTab}`}
                     </span>
                   </div>
                   <h3 className="text-lg font-bold text-slate-800">
-                    {activeTab === 'overview' ? 'Dashboard Overview' : activeTab === 'historical' ? 'Historical & Variance Analytics' : `Detail Anggaran: ${activeTab}`}
+                    {activeTab === 'overview' ? 'Dashboard Overview' : activeTab === 'historical' ? 'Historical & Variance Analytics' : activeTab === 'upload' ? 'Upload Laporan Bulan Terbaru' : `Detail Anggaran: ${activeTab}`}
                   </h3>
                   <p className="text-xs text-slate-400">
-                    {activeTab === 'overview' ? 'Track your investment budget and achieve financial goals' : activeTab === 'historical' ? 'Analisis perubahan alokasi EFS dan realisasi antar bulan' : `Monitoring khusus mata anggaran ${activeTab}`}
+                    {activeTab === 'overview' ? 'Track your investment budget and achieve financial goals' : activeTab === 'historical' ? 'Analisis perubahan alokasi EFS dan realisasi antar bulan' : activeTab === 'upload' ? 'Sistem akan mendeteksi Project Number baru secara otomatis' : `Monitoring khusus mata anggaran ${activeTab}`}
                   </p>
                 </div>
 
-                {activeTab !== 'historical' && (
+                {activeTab !== 'historical' && activeTab !== 'upload' && (
                   <div className="flex items-center bg-white border border-slate-200 shadow-sm rounded-xl px-3 py-1.5 space-x-2">
                     <i data-lucide="calendar" className="w-4 h-4 text-bni-teal"></i>
                     <span className="text-xs font-extrabold text-slate-600">Bulan Laporan:</span>
@@ -1940,11 +2394,19 @@
                 )}
               </div>
 
+              {activeTab === 'upload' && (
+                <UploadMonthlyReportView 
+                  existingProjects={rawData} 
+                  onUpdateDatabase={handleUpdateDatabaseFromUpload}
+                  onUploadSuccess={() => setActiveTab('overview')}
+                />
+              )}
+
               {activeTab === 'historical' && (
                 <HistoricalAnalysisView data={rawData} />
               )}
 
-              {activeTab !== 'historical' && (
+              {activeTab !== 'historical' && activeTab !== 'upload' && (
                 <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm space-y-3">
                   <div className="flex items-center justify-between border-b pb-2 border-slate-100">
                     <h4 className="font-extrabold text-slate-800 text-sm flex items-center space-x-2">
@@ -2312,7 +2774,7 @@
                 </>
               )}
 
-              {activeTab !== 'overview' && activeTab !== 'historical' && (
+              {activeTab !== 'overview' && activeTab !== 'historical' && activeTab !== 'upload' && (
                 <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm flex flex-col justify-between overflow-hidden max-h-[650px]">
                   <div className="p-4 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
                     <div>
@@ -2501,8 +2963,8 @@
                           </tr>
                         ) : (
                           currentTableData.map((row, idx) => {
-                            const aloEfs = row.aloEfs !== undefined ? row.aloEfs : (Number(row.alokasiEfs) || 0);
-                            const rowTotal = row.totalReal !== undefined ? row.totalReal : 0;
+                            const aloEfs = row.aloEfs !== undefined ? row.aloEfs : getEfsValue(row, reportMonth);
+                            const rowTotal = row.totalReal !== undefined ? row.totalReal : getCumulativeRealisasiValue(row, reportMonth);
                             const pctReal = row.pctRealisasi !== undefined ? row.pctRealisasi : (aloEfs > 0 ? (rowTotal / aloEfs) * 100 : 0);
 
                             const isNonAktif = String(row.statusProject).toUpperCase() === 'NON AKTIF' || String(row.statusProject).toUpperCase() === 'DROPPED';
@@ -3015,7 +3477,7 @@
             </div>
 
             <div className="bg-slate-900 px-4 py-2 border-t md:border-t-0 md:border-l border-slate-800 shrink-0 text-slate-400 text-[11px] font-medium text-center">
-              Copyright © 2026 by <b className="text-slate-200 font-extrabold">Fajar Ramadhan[cite: 1] - P052099</b> | Divisi NSD
+              Copyright © 2026 by <b className="text-slate-200 font-extrabold">Fajar Ramadhan [P052099]</b> | Divisi NSD[cite: 1]
             </div>
           </footer>
 
