@@ -77,13 +77,7 @@
       if (row[`efs_${mKey}`] !== undefined && row[`efs_${mKey}`] !== null) {
         return Number(row[`efs_${mKey}`]) || 0;
       }
-      if (row[`alokasi_efs_${mKey}`] !== undefined && row[`alokasi_efs_${mKey}`] !== null) {
-        return Number(row[`alokasi_efs_${mKey}`]) || 0;
-      }
-      if (row.aloEfs !== undefined && row.aloEfs !== null) {
-        return Number(row.aloEfs) || 0;
-      }
-      return Number(row.alokasiEfs) || 0;
+      return 0;
     };
 
     const getCumulativeRealisasiValue = (row, month) => {
@@ -151,7 +145,7 @@
       );
     };
 
-    const HeatmapMatrix = ({ data, categories, wilayahs, type = 'efs', reportMonth = 'Des' }) => {
+    const HeatmapMatrix = ({ data, categories, wilayahs, reportMonth = 'Des' }) => {
       const { matrixData, colTotals, rowTotals, grandTotal } = useMemo(() => {
         const matrix = {};
         const colTot = {};
@@ -179,7 +173,7 @@
           if (cat.toLowerCase().includes('bangunan')) matchedCat = "Bangunan Gedung";
           else if (cat.toLowerCase().includes('tanah')) matchedCat = "Tanah";
           else if (cat.toLowerCase().includes('otomasi') && !cat.toLowerCase().includes('non')) matchedCat = "Perabotan Otomasi";
-          else if (cat.toLowerCase().includes('perabotan')) matchedCat = "Perabotan Non Otomasi";
+          else if (cat.toLowerCase().includes('perabotan') || cat.toLowerCase().includes('non otomasi')) matchedCat = "Perabotan Non Otomasi";
           else if (cat.toLowerCase().includes('kendaraan')) matchedCat = "Kendaraan";
 
           if (w && matchedCat && matrix[w] && matrix[w][matchedCat]) {
@@ -208,139 +202,172 @@
         };
       }, [data, categories, wilayahs, reportMonth]);
 
-      const getBgStylePct = (pct) => {
-        if (pct === 0) return { backgroundColor: '#F8FAFC', color: '#94A3B8' };
-        if (pct >= 85) return { backgroundColor: '#10B981', color: '#FFFFFF' };
-        if (pct >= 60) return { backgroundColor: '#34D399', color: '#065F46' };
-        if (pct >= 30) return { backgroundColor: '#FBBF24', color: '#78350F' };
-        return { backgroundColor: '#FFEDD5', color: '#C2410C' };
+      const getBgStylePct = (pct, alokasi) => {
+        if (!alokasi || alokasi === 0) return { backgroundColor: '#FFFFFF', color: '#94A3B8' };
+        if (pct === 0) return { backgroundColor: '#F15A24', color: '#FFFFFF' };
+        if (pct < 30) return { backgroundColor: '#F97316', color: '#FFFFFF' };
+        if (pct <= 50) return { backgroundColor: '#FB923C', color: '#FFFFFF' };
+        if (pct <= 74) return { backgroundColor: '#38BDF8', color: '#0F172A' };
+        return { backgroundColor: '#006666', color: '#FFFFFF' };
       };
-
-      const getBgStyleEfs = (val, maxVal) => {
-        if (val === 0) return { backgroundColor: '#F8FAFC', color: '#94A3B8' };
-        const ratio = maxVal > 0 ? val / maxVal : 0;
-        if (ratio >= 0.7) return { backgroundColor: '#006666', color: '#FFFFFF' };
-        if (ratio >= 0.4) return { backgroundColor: '#0D9488', color: '#FFFFFF' };
-        if (ratio >= 0.15) return { backgroundColor: '#99F6E4', color: '#134E4A' };
-        return { backgroundColor: '#E0F2FE', color: '#0369A1' };
-      };
-
-      const maxEfsVal = useMemo(() => {
-        let max = 0;
-        wilayahs.forEach(w => {
-          categories.forEach(c => {
-            if (matrixData[w] && matrixData[w][c]) {
-              if (matrixData[w][c].alokasiEfs > max) max = matrixData[w][c].alokasiEfs;
-            }
-          });
-        });
-        return max;
-      }, [matrixData, wilayahs, categories]);
-
-      const grandPct = grandTotal.alokasiEfs > 0 
-        ? (grandTotal.realisasi / grandTotal.alokasiEfs) * 100 
-        : 0;
 
       return (
-        <div className="w-full overflow-hidden">
-          <table className="w-full text-center border-collapse table-fixed">
+        <div className="w-full overflow-x-auto space-y-4">
+          <table className="w-full text-center border-collapse text-[10px]">
             <thead>
-              <tr>
-                <th className="p-1.5 text-[9px] font-extrabold text-slate-400 bg-slate-50 border border-slate-200 text-left w-[18%]">Wilayah</th>
+              <tr className="bg-[#004d4d] text-white">
+                <th rowSpan="2" className="p-2 border border-teal-800 text-left w-[12%]">Wilayah</th>
                 {categories.map(c => (
-                  <th key={c} className="p-1 text-[8px] font-extrabold text-slate-600 bg-slate-50 border border-slate-200 leading-tight">
+                  <th key={c} colSpan="3" className="p-1.5 border border-teal-800 font-extrabold uppercase text-[9px]">
                     {c}
                   </th>
                 ))}
-                <th className="p-1 text-[8px] font-black text-slate-800 bg-slate-200 border border-slate-300 w-[15%]">
+                <th colSpan="3" className="p-1.5 border border-teal-800 font-black uppercase text-[9px] bg-[#D14817]">
                   Total
                 </th>
               </tr>
+              <tr className="bg-[#006666] text-white">
+                {categories.map(c => (
+                  <React.Fragment key={`sub-${c}`}>
+                    <th className="p-1 border border-teal-800 text-[8px] font-bold">Alokasi</th>
+                    <th className="p-1 border border-teal-800 text-[8px] font-bold">Realisasi</th>
+                    <th className="p-1 border border-teal-800 text-[8px] font-bold">%</th>
+                  </React.Fragment>
+                ))}
+                <th className="p-1 border border-teal-800 text-[8px] font-black bg-[#F15A24]">Alokasi</th>
+                <th className="p-1 border border-teal-800 text-[8px] font-black bg-[#F15A24]">Realisasi</th>
+                <th className="p-1 border border-teal-800 text-[8px] font-black bg-[#F15A24]">%</th>
+              </tr>
             </thead>
             <tbody>
-              {wilayahs.map(w => {
+              {wilayahs.map((w, idx) => {
                 const rowItem = rowTotals[w] || { alokasiEfs: 0, realisasi: 0 };
                 const rowPct = rowItem.alokasiEfs > 0 ? (rowItem.realisasi / rowItem.alokasiEfs) * 100 : 0;
+                const rowBgColor = idx % 2 === 0 ? 'bg-white' : 'bg-slate-50';
 
                 return (
-                  <tr key={w}>
-                    <td className="p-1 text-[9px] font-bold text-slate-700 bg-slate-50 border border-slate-200 text-left truncate" title={w}>
+                  <tr key={w} className={rowBgColor}>
+                    <td className="p-1.5 font-bold text-slate-800 border border-slate-200 text-left">
                       {w}
                     </td>
                     {categories.map(c => {
                       const item = matrixData[w] ? matrixData[w][c] : { alokasiEfs: 0, realisasi: 0 };
                       const pct = item.alokasiEfs > 0 ? (item.realisasi / item.alokasiEfs) * 100 : 0;
-                      
-                      const style = type === 'pct' 
-                        ? getBgStylePct(pct) 
-                        : getBgStyleEfs(item.alokasiEfs, maxEfsVal);
+                      const pctStyle = getBgStylePct(pct, item.alokasiEfs);
 
                       return (
-                        <td 
-                          key={c} 
-                          style={style} 
-                          className="p-1 border border-slate-200 text-[8px] font-extrabold transition-all hover:scale-105 cursor-default truncate"
-                          title={`${w} - ${c}\nAlokasi EFS: ${formatIDR(item.alokasiEfs)}\nRealisasi: ${formatIDR(item.realisasi)}\n% Realisasi: ${pct.toFixed(2)}%`}
-                        >
-                          {type === 'pct' ? (
-                            item.alokasiEfs > 0 ? `${pct.toFixed(2)}%` : '-'
-                          ) : (
-                            item.alokasiEfs > 0 ? formatCompactIDR(item.alokasiEfs) : '-'
-                          )}
-                        </td>
+                        <React.Fragment key={`${w}-${c}`}>
+                          {/* Tooltip Alokasi Rupiah Penuh */}
+                          <td 
+                            className="p-1 border border-slate-200 text-slate-700 font-medium whitespace-nowrap cursor-default hover:bg-slate-100"
+                            title={`${w} - ${c}\nAlokasi: ${formatIDR(item.alokasiEfs)}`}
+                          >
+                            {item.alokasiEfs > 0 ? formatSlimIDR(item.alokasiEfs) : '-'}
+                          </td>
+                          {/* Tooltip Realisasi Rupiah Penuh */}
+                          <td 
+                            className="p-1 border border-slate-200 text-slate-700 font-medium whitespace-nowrap cursor-default hover:bg-slate-100"
+                            title={`${w} - ${c}\nRealisasi: ${formatIDR(item.realisasi)}`}
+                          >
+                            {item.realisasi > 0 ? formatSlimIDR(item.realisasi) : '-'}
+                          </td>
+                          {/* Tooltip Persentase */}
+                          <td 
+                            style={pctStyle} 
+                            className="p-1 border border-slate-200 font-extrabold whitespace-nowrap cursor-default"
+                            title={`${w} - ${c}\nAlokasi: ${formatIDR(item.alokasiEfs)}\nRealisasi: ${formatIDR(item.realisasi)}\nRealisasi (%): ${pct.toFixed(2)}%`}
+                          >
+                            {item.alokasiEfs > 0 ? `${pct.toFixed(2)}%` : '-'}
+                          </td>
+                        </React.Fragment>
                       );
                     })}
 
+                    {/* Total Baris Wilayah dengan Tooltip Rupiah Penuh */}
                     <td 
-                      className="p-1 border border-slate-300 bg-slate-100 text-slate-800 text-[8px] font-black cursor-default truncate"
-                      title={`Total ${w}\nAlokasi EFS: ${formatIDR(rowItem.alokasiEfs)}\nRealisasi: ${formatIDR(rowItem.realisasi)}\n% Realisasi: ${rowPct.toFixed(2)}%`}
+                      className="p-1 border border-slate-300 font-bold text-slate-900 bg-slate-100 whitespace-nowrap cursor-default"
+                      title={`Total ${w}\nAlokasi: ${formatIDR(rowItem.alokasiEfs)}`}
                     >
-                      {type === 'pct' ? (
-                        rowItem.alokasiEfs > 0 ? `${rowPct.toFixed(2)}%` : '-'
-                      ) : (
-                        rowItem.alokasiEfs > 0 ? formatCompactIDR(rowItem.alokasiEfs) : '-'
-                      )}
+                      {rowItem.alokasiEfs > 0 ? formatSlimIDR(rowItem.alokasiEfs) : '-'}
+                    </td>
+                    <td 
+                      className="p-1 border border-slate-300 font-bold text-slate-900 bg-slate-100 whitespace-nowrap cursor-default"
+                      title={`Total ${w}\nRealisasi: ${formatIDR(rowItem.realisasi)}`}
+                    >
+                      {rowItem.realisasi > 0 ? formatSlimIDR(rowItem.realisasi) : '-'}
+                    </td>
+                    <td 
+                      className="p-1 border border-slate-300 font-black text-slate-900 bg-slate-100 whitespace-nowrap cursor-default"
+                      title={`Total ${w}\nAlokasi: ${formatIDR(rowItem.alokasiEfs)}\nRealisasi: ${formatIDR(rowItem.realisasi)}\nRealisasi (%): ${rowPct.toFixed(2)}%`}
+                    >
+                      {rowItem.alokasiEfs > 0 ? `${rowPct.toFixed(2)}%` : '-'}
                     </td>
                   </tr>
                 );
               })}
 
-              <tr className="border-t-2 border-slate-400">
-                <td className="p-1 text-[9px] font-black text-slate-800 bg-slate-200 border border-slate-300 text-left truncate">
-                  Total
-                </td>
+              {/* Baris Grand Total Bawah dengan Tooltip Rupiah Penuh */}
+              <tr className="bg-[#D14817] text-white font-black">
+                <td className="p-2 border border-orange-800 text-left">Total</td>
                 {categories.map(c => {
                   const colItem = colTotals[c] || { alokasiEfs: 0, realisasi: 0 };
                   const colPct = colItem.alokasiEfs > 0 ? (colItem.realisasi / colItem.alokasiEfs) * 100 : 0;
 
                   return (
-                    <td 
-                      key={`tot-${c}`} 
-                      className="p-1 border border-slate-300 bg-slate-100 text-slate-800 text-[8px] font-black cursor-default truncate"
-                      title={`Total Kategori ${c}\nAlokasi EFS: ${formatIDR(colItem.alokasiEfs)}\nRealisasi: ${formatIDR(colItem.realisasi)}\n% Realisasi: ${colPct.toFixed(2)}%`}
-                    >
-                      {type === 'pct' ? (
-                        colItem.alokasiEfs > 0 ? `${colPct.toFixed(2)}%` : '-'
-                      ) : (
-                        colItem.alokasiEfs > 0 ? formatCompactIDR(colItem.alokasiEfs) : '-'
-                      )}
-                    </td>
+                    <React.Fragment key={`tot-${c}`}>
+                      <td 
+                        className="p-1 border border-orange-800 whitespace-nowrap cursor-default"
+                        title={`Total Kategori ${c}\nAlokasi: ${formatIDR(colItem.alokasiEfs)}`}
+                      >
+                        {colItem.alokasiEfs > 0 ? formatSlimIDR(colItem.alokasiEfs) : '-'}
+                      </td>
+                      <td 
+                        className="p-1 border border-orange-800 whitespace-nowrap cursor-default"
+                        title={`Total Kategori ${c}\nRealisasi: ${formatIDR(colItem.realisasi)}`}
+                      >
+                        {colItem.realisasi > 0 ? formatSlimIDR(colItem.realisasi) : '-'}
+                      </td>
+                      <td 
+                        className="p-1 border border-orange-800 whitespace-nowrap cursor-default"
+                        title={`Total Kategori ${c}\nAlokasi: ${formatIDR(colItem.alokasiEfs)}\nRealisasi: ${formatIDR(colItem.realisasi)}\nRealisasi (%): ${colPct.toFixed(2)}%`}
+                      >
+                        {colItem.alokasiEfs > 0 ? `${colPct.toFixed(2)}%` : '-'}
+                      </td>
+                    </React.Fragment>
                   );
                 })}
 
                 <td 
-                  className="p-1 border border-slate-400 bg-slate-300 text-slate-900 text-[8px] font-black cursor-default truncate"
-                  title={`GRAND TOTAL\nAlokasi EFS: ${formatIDR(grandTotal.alokasiEfs)}\nRealisasi: ${formatIDR(grandTotal.realisasi)}\n% Realisasi: ${grandPct.toFixed(2)}%`}
+                  className="p-1 border border-orange-800 whitespace-nowrap cursor-default"
+                  title={`GRAND TOTAL\nAlokasi: ${formatIDR(grandTotal.alokasiEfs)}`}
                 >
-                  {type === 'pct' ? (
-                    grandTotal.alokasiEfs > 0 ? `${grandPct.toFixed(2)}%` : '-'
-                  ) : (
-                    grandTotal.alokasiEfs > 0 ? formatCompactIDR(grandTotal.alokasiEfs) : '-'
-                  )}
+                  {grandTotal.alokasiEfs > 0 ? formatSlimIDR(grandTotal.alokasiEfs) : '-'}
+                </td>
+                <td 
+                  className="p-1 border border-orange-800 whitespace-nowrap cursor-default"
+                  title={`GRAND TOTAL\nRealisasi: ${formatIDR(grandTotal.realisasi)}`}
+                >
+                  {grandTotal.realisasi > 0 ? formatSlimIDR(grandTotal.realisasi) : '-'}
+                </td>
+                <td 
+                  className="p-1 border border-orange-800 whitespace-nowrap cursor-default"
+                  title={`GRAND TOTAL\nAlokasi: ${formatIDR(grandTotal.alokasiEfs)}\nRealisasi: ${formatIDR(grandTotal.realisasi)}\nRealisasi (%): ${(grandTotal.realisasi / grandTotal.alokasiEfs * 100).toFixed(2)}%`}
+                >
+                  {grandTotal.alokasiEfs > 0 ? `${(grandTotal.realisasi / grandTotal.alokasiEfs * 100).toFixed(2)}%` : '-'}
                 </td>
               </tr>
             </tbody>
           </table>
+
+          {/* Legenda Warna */}
+          <div className="flex flex-wrap items-center gap-2 pt-2 text-[10px] font-bold text-slate-600">
+            <span>Legend:</span>
+            <span className="px-2 py-0.5 bg-[#F15A24] text-white rounded">0 %</span>
+            <span className="px-2 py-0.5 bg-[#F97316] text-white rounded">&lt; 30 %</span>
+            <span className="px-2 py-0.5 bg-[#FB923C] text-white rounded">30 - 50 %</span>
+            <span className="px-2 py-0.5 bg-[#38BDF8] text-slate-900 rounded">51 - 74 %</span>
+            <span className="px-2 py-0.5 bg-[#006666] text-white rounded">&gt; 75 %</span>
+          </div>
         </div>
       );
     };
@@ -542,7 +569,7 @@
     };
 
     // KOMPONEN UNTUK HALAMAN UPLOAD DATA REPORT BULANAN BARU
-    const UploadMonthlyReportView = ({ existingProjects, onUpdateDatabase, onUploadSuccess }) => {
+    const UploadMonthlyReportView = ({ existingProjects, masterOutletDict, masterRekgDict, onUpdateDatabase, onUploadSuccess }) => {
       const [uploadMonth, setUploadMonth] = useState('Ags');
       const [parsedData, setParsedData] = useState([]);
       const [fileName, setFileName] = useState('');
@@ -592,8 +619,6 @@
               const ws = wb.Sheets[wsName];
               const jsonData = XLSX.utils.sheet_to_json(ws);
 
-              const mKey = uploadMonth.toLowerCase();
-
               const processed = jsonData.map((row, index) => {
                 const rawProjNum = getColumnValue(row, [
                   'Project Number', 'PROJECT_NUMBER', 'projectNumber', 'NO_PROJECT', 'No Project', 'PROJECT NUMBER'
@@ -605,61 +630,66 @@
                 const isNew = !dbRecord && cleanProjNum !== '';
 
                 const rawEfsExcel = getColumnValue(row, [
-                  `Alokasi EFS (${uploadMonth})`,
-                  `Alokasi EFS ${uploadMonth}`,
-                  `EFS ${uploadMonth}`,
-                  `EFS (${uploadMonth})`,
-                  `alokasi_efs_${mKey}`,
-                  `efs_${mKey}`,
-                  'Alokasi EFS',
-                  'ALOKASI_EFS',
-                  'EFS'
+                  `Alokasi EFS (${uploadMonth})`, `Alokasi EFS ${uploadMonth}`, `EFS ${uploadMonth}`, `Alokasi`, 'EFS'
                 ]);
                 const valEfs = Number(String(rawEfsExcel || 0).replace(/[^0-9.-]+/g, "")) || 0;
 
                 const rawRealExcel = getColumnValue(row, [
-                  `Realisasi (${uploadMonth})`,
-                  `Realisasi ${uploadMonth}`,
-                  `Realisasi Bulan Ini`,
-                  `Realisasi`,
-                  `REALISASI`,
-                  mKey
+                  `Realisasi (${uploadMonth})`, `Realisasi ${uploadMonth}`, `Realisasi`, uploadMonth.toLowerCase()
                 ]);
                 const valReal = Number(String(rawRealExcel || 0).replace(/[^0-9.-]+/g, "")) || 0;
 
-                let namaProj = '-';
-                let wilUnit = '-';
-                let wil = 'Lainnya';
-                let opUnit = '-';
-                let kat = 'Bangunan Gedung';
+                const rawCoa = getColumnValue(row, ['COA', 'No. Rekg', 'Rekening', 'COA (No. Rekg)']) || '';
 
+                let parsedMataAnggaran = '-';
+                let parsedKategori = 'Bangunan Gedung';
+                
+                const parts = String(rawCoa).split('-');
+                if (parts.length >= 3) {
+                  let target10 = parts[2].trim();
+                  if (masterRekgDict && masterRekgDict[target10]) {
+                    parsedMataAnggaran = masterRekgDict[target10].mataAnggaran;
+                    parsedKategori = masterRekgDict[target10].kategoriProject;
+                  } else {
+                    parsedMataAnggaran = target10;
+                  }
+                }
+
+                let parsedWilayah = 'Lainnya';
+                let parsedEntitas = '-';
+                let parsedOpUnit = '-';
+                const segs = String(cleanProjNum).split('_');
+                if (segs.length >= 3) {
+                  let code4 = segs[2].trim();
+                  if (masterOutletDict && masterOutletDict[code4]) {
+                    parsedWilayah = masterOutletDict[code4].wilayah;
+                    parsedEntitas = masterOutletDict[code4].entitas;
+                    parsedOpUnit = masterOutletDict[code4].operatingUnit;
+                  }
+                }
+
+                let namaProj = '-';
                 if (!isNew && dbRecord) {
                   namaProj = dbRecord.namaProject || '-';
-                  wilUnit = `${dbRecord.wilayah || '-'} - ${dbRecord.operatingUnit || '-'}`;
-                  wil = dbRecord.wilayah || 'Lainnya';
-                  opUnit = dbRecord.operatingUnit || '-';
-                  kat = dbRecord.kategori || 'Bangunan Gedung';
+                  if (parsedWilayah === 'Lainnya') parsedWilayah = dbRecord.wilayah || 'Lainnya';
+                  if (parsedEntitas === '-') parsedEntitas = dbRecord.entitas || '-';
+                  if (parsedOpUnit === '-') parsedOpUnit = dbRecord.operatingUnit || '-';
                 } else {
-                  const excelNama = getColumnValue(row, ['Nama Project', 'NAMA_PROJECT', 'Nama Proyek', 'NAMA PROYEK']);
-                  const excelWil = getColumnValue(row, ['Wilayah', 'WILAYAH']);
-                  const excelUnit = getColumnValue(row, ['Operating Unit', 'OPERATING_UNIT', 'Unit Kerja']);
-                  const excelKat = getColumnValue(row, ['Kategori', 'KATEGORI']);
-                  
+                  const excelNama = getColumnValue(row, ['Nama Project', 'NAMA_PROJECT', 'Nama Proyek']);
                   if (excelNama) namaProj = String(excelNama).trim();
-                  if (excelWil) wil = String(excelWil).trim();
-                  if (excelUnit) opUnit = String(excelUnit).trim();
-                  if (excelKat) kat = String(excelKat).trim();
-                  wilUnit = `${wil} - ${opUnit}`;
                 }
 
                 return {
                   id: index + 1,
                   projectNumber: cleanProjNum || '-',
                   namaProject: namaProj,
-                  wilayah: wil,
-                  operatingUnit: opUnit,
-                  kategori: kat,
-                  wilayahUnit: wilUnit,
+                  coa: rawCoa,
+                  wilayah: parsedWilayah,
+                  entitas: parsedEntitas,
+                  operatingUnit: parsedOpUnit,
+                  mataAnggaran: parsedMataAnggaran,
+                  kategori: parsedKategori,
+                  wilayahUnit: `${parsedWilayah} - ${parsedOpUnit}`,
                   alokasiEfs: valEfs,
                   realisasiBulan: valReal,
                   isNewProject: isNew,
@@ -931,12 +961,17 @@
                     <thead className="bg-slate-100 text-slate-600 font-extrabold uppercase text-[9px] sticky top-0 border-b border-slate-200">
                       <tr>
                         <th className="py-2.5 px-3 text-center">No</th>
-                        <th className="py-2.5 px-3">Status Deteksi</th>
+                        <th className="py-2.5 px-3">Status</th>
                         <th className="py-2.5 px-3">Project Number</th>
                         <th className="py-2.5 px-3">Nama Project</th>
-                        <th className="py-2.5 px-3">Wilayah / Unit</th>
+                        <th className="py-2.5 px-3">COA (No. Rekg)</th>
+                        <th className="py-2.5 px-3">Wilayah</th>
+                        <th className="py-2.5 px-3">Entitas</th>
+                        <th className="py-2.5 px-3">Operating Unit</th>
+                        <th className="py-2.5 px-3">Mata Anggaran</th>
+                        <th className="py-2.5 px-3">Kategori</th>
                         <th className="py-2.5 px-3 text-right">Alokasi EFS ({uploadMonth})</th>
-                        <th className="py-2.5 px-3 text-right">Realisasi Kumulatif ({uploadMonth})</th>
+                        <th className="py-2.5 px-3 text-right">Realisasi ({uploadMonth})</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -947,7 +982,7 @@
                             {row.isNewProject ? (
                               <span className="bg-amber-100 text-amber-800 font-black text-[9px] px-2 py-0.5 rounded-full border border-amber-300 inline-flex items-center space-x-1">
                                 <i data-lucide="sparkles" className="w-3 h-3"></i>
-                                <span>PROYEK BARU</span>
+                                <span>BARU</span>
                               </span>
                             ) : (
                               <span className="bg-slate-100 text-slate-500 font-bold text-[9px] px-2 py-0.5 rounded-full">
@@ -957,7 +992,12 @@
                           </td>
                           <td className="py-2 px-3 font-extrabold text-bni-teal">{row.projectNumber}</td>
                           <td className="py-2 px-3 font-bold text-slate-800">{row.namaProject}</td>
-                          <td className="py-2 px-3">{row.wilayahUnit}</td>
+                          <td className="py-2 px-3 font-mono text-[10px] text-slate-500">{row.coa || '-'}</td>
+                          <td className="py-2 px-3">{row.wilayah}</td>
+                          <td className="py-2 px-3">{row.entitas}</td>
+                          <td className="py-2 px-3">{row.operatingUnit}</td>
+                          <td className="py-2 px-3 font-semibold text-slate-700">{row.mataAnggaran}</td>
+                          <td className="py-2 px-3 font-semibold text-slate-700">{row.kategori}</td>
                           <td className="py-2 px-3 text-right font-semibold text-blue-700">{formatSlimIDR(row.alokasiEfs)}</td>
                           <td className="py-2 px-3 text-right font-extrabold text-bni-orange">{formatSlimIDR(row.realisasiBulan)}</td>
                         </tr>
@@ -1503,6 +1543,8 @@
     function App() {
       const [rawData, setRawData] = useState([]);
       const [detailNonOtomasiData, setDetailNonOtomasiData] = useState([]);
+      const [masterOutletDict, setMasterOutletDict] = useState({});
+      const [masterRekgDict, setMasterRekgDict] = useState({});
       const [loading, setLoading] = useState(true);
       const [saving, setSaving] = useState(false);
       
@@ -1552,6 +1594,8 @@
           if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
             setRawData(parsed.overview || []);
             setDetailNonOtomasiData(parsed.detailNonOtomasi || []);
+            setMasterOutletDict(parsed.outletDict || {}); 
+            setMasterRekgDict(parsed.rekgDict || {});     
           } else {
             setRawData(Array.isArray(parsed) ? parsed : []);
             setDetailNonOtomasiData([]);
@@ -1715,11 +1759,8 @@
       };
 
       const activeSourceData = useMemo(() => {
-        if (activeTab === 'Perabotan Non Otomasi' && detailNonOtomasiData.length > 0) {
-          return detailNonOtomasiData;
-        }
         return rawData;
-      }, [activeTab, rawData, detailNonOtomasiData]);
+      }, [rawData]);
 
       const wilayahList = useMemo(() => {
         const source = selectedGroup === 'ALL' 
@@ -1755,18 +1796,26 @@
         return Array.from(setEnp).sort();
       }, [rawData]);
 
-      const filteredData = useMemo(() => {
+ const filteredData = useMemo(() => {
         return activeSourceData.filter(item => {
           const matchGroup = selectedGroup === 'ALL' || item.typeGroup === selectedGroup;
           const matchWilayah = selectedWilayah === 'ALL' || item.wilayah === selectedWilayah;
           
           let matchKategori = true;
-          if (activeTab !== 'overview' && activeTab !== 'historical' && activeTab !== 'upload' && activeTab !== 'Perabotan Non Otomasi') {
+          if (activeTab !== 'overview' && activeTab !== 'historical' && activeTab !== 'upload') {
             let cat = (item.kategori || '').toLowerCase();
-            if (activeTab === 'Bangunan Gedung') matchKategori = cat.includes('bangunan') || cat.includes('gedung');
-            else if (activeTab === 'Tanah') matchKategori = cat.includes('tanah');
-            else if (activeTab === 'Perabotan Otomasi') matchKategori = cat.includes('otomasi') && !cat.includes('non');
-            else if (activeTab === 'Kendaraan') matchKategori = cat.includes('kendaraan');
+            if (activeTab === 'Bangunan Gedung') {
+              matchKategori = cat.includes('bangunan') || cat.includes('gedung');
+            } else if (activeTab === 'Tanah') {
+              matchKategori = cat.includes('tanah');
+            } else if (activeTab === 'Perabotan Otomasi') {
+              matchKategori = cat.includes('otomasi') && !cat.includes('non');
+            } else if (activeTab === 'Perabotan Non Otomasi') {
+              // PERBAIKAN: Perketat filter agar hanya mencakup kategori perabotan non otomasi secara presisi
+              matchKategori = cat.includes('perabotan non') || cat === 'perabotan non otomasi' || cat.includes('non-otomasi');
+            } else if (activeTab === 'Kendaraan') {
+              matchKategori = cat.includes('kendaraan') || cat.includes('mobil') || cat.includes('motor') || cat.includes('dinas');
+            }
           }
 
           let matchUnit = true;
@@ -1934,11 +1983,12 @@
           let cat = (row.kategori || '').toLowerCase().trim();
           let matchedCat = null;
 
-          if (cat.includes('bangunan') || cat.includes('gedung')) matchedCat = "Bangunan Gedung";
+          // Letakkan Kendaraan di paling atas agar tidak tersangkut filter 'non'
+          if (cat.includes('kendaraan') || cat.includes('mobil') || cat.includes('motor')) matchedCat = "Kendaraan";
+          else if (cat.includes('bangunan') || cat.includes('gedung')) matchedCat = "Bangunan Gedung";
           else if (cat.includes('tanah')) matchedCat = "Tanah";
           else if (cat.includes('otomasi') && !cat.includes('non')) matchedCat = "Perabotan Otomasi";
           else if (cat.includes('perabotan') || cat.includes('non otomasi') || cat.includes('non-otomasi') || cat.includes('mebel')) matchedCat = "Perabotan Non Otomasi";
-          else if (cat.includes('kendaraan') || cat.includes('mobil') || cat.includes('motor')) matchedCat = "Kendaraan";
 
           if (matchedCat && summary[matchedCat]) {
             const pagu = getEfsValue(row, reportMonth);
@@ -2000,7 +2050,6 @@
         setSortConfig({ key, direction });
       };
 
-      // PERBAIKAN UTAMA: LOGIKA SORTING TABEL PROYEK DIPERBAIKI PRESISI
       const tableRows = useMemo(() => {
         let data = mappedProjectsData.filter(row => {
           if (tableSearchTerm) {
@@ -2397,6 +2446,8 @@
               {activeTab === 'upload' && (
                 <UploadMonthlyReportView 
                   existingProjects={rawData} 
+                  masterOutletDict={masterOutletDict} 
+                  masterRekgDict={masterRekgDict}     
                   onUpdateDatabase={handleUpdateDatabaseFromUpload}
                   onUploadSuccess={() => setActiveTab('overview')}
                 />
@@ -2555,61 +2606,23 @@
                     />
                   </div>
 
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm space-y-3 overflow-hidden">
-                      <div className="flex items-center justify-between border-b pb-2 border-slate-100">
-                        <h4 className="font-extrabold text-slate-800 text-sm flex items-center space-x-2">
-                          <i data-lucide="grid" className="w-4 h-4 text-bni-teal"></i>
-                          <span>Heatmap Matrix 1: Pagu Alokasi EFS ({reportMonth})</span>
-                        </h4>
-                        <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">Konsentrasi Anggaran</span>
-                      </div>
-                      <p className="text-[11px] text-slate-400">Sebaran besaran alokasi anggaran investasi (EFS) per unit wilayah.</p>
-
-                      <HeatmapMatrix 
-                        data={rawData} 
-                        categories={kategoriList} 
-                        wilayahs={wilayahList} 
-                        type="efs" 
-                        reportMonth={reportMonth}
-                      />
-
-                      <div className="flex items-center justify-end space-x-2 text-[9px] font-bold text-slate-500 pt-2 border-t border-slate-100">
-                        <span>Legenda Pagu:</span>
-                        <span className="px-1.5 py-0.5 bg-sky-100 text-sky-800 rounded">Rendah</span>
-                        <span className="px-1.5 py-0.5 bg-teal-200 text-teal-900 rounded">Sedang</span>
-                        <span className="px-1.5 py-0.5 bg-teal-600 text-white rounded">Tinggi</span>
-                        <span className="px-1.5 py-0.5 bg-bni-teal text-white rounded">Sangat Tinggi</span>
-                      </div>
+                  {/* --- 1 TABEL HEATMAP KOMPREHENSIF (MENYELURUH) --- */}
+                  <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm space-y-4">
+                    <div className="flex items-center justify-between border-b pb-2 border-slate-100">
+                      <h4 className="font-extrabold text-slate-800 text-sm flex items-center space-x-2">
+                        <i data-lucide="grid" className="w-4 h-4 text-bni-teal"></i>
+                        <span>Heatmap Matrix: Alokasi, Realisasi & % Penyerapan Anggaran ({reportMonth})</span>
+                      </h4>
+                      <span className="text-[10px] font-bold text-bni-teal bg-bni-teal-subtle px-2.5 py-1 rounded-full">Konsentrasi & Efisiensi Anggaran</span>
                     </div>
+                    <p className="text-xs text-slate-400">Sebaran komprehensif alokasi investasi (EFS), realisasi kumulatif, dan tingkat persentase penyerapan per unit wilayah dan kategori.</p>
 
-                    <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm space-y-3 overflow-hidden">
-                      <div className="flex items-center justify-between border-b pb-2 border-slate-100">
-                        <h4 className="font-extrabold text-slate-800 text-sm flex items-center space-x-2">
-                          <i data-lucide="grid" className="w-4 h-4 text-bni-orange"></i>
-                          <span>Heatmap Matrix 2: % Realisasi Penyerapan ({reportMonth})</span>
-                        </h4>
-                        <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">Wilayah vs Anggaran</span>
-                      </div>
-                      <p className="text-[11px] text-slate-400">Tingkat efisiensi penyerapan realisasi terhadap Alokasi EFS.</p>
-                      
-                      <HeatmapMatrix 
-                        data={rawData} 
-                        categories={kategoriList} 
-                        wilayahs={wilayahList} 
-                        type="pct" 
-                        reportMonth={reportMonth}
-                      />
-
-                      <div className="flex items-center justify-end space-x-2 text-[9px] font-bold text-slate-500 pt-2 border-t border-slate-100">
-                        <span>Legenda %:</span>
-                        <span className="px-1.5 py-0.5 bg-slate-100 text-slate-400 rounded">0%</span>
-                        <span className="px-1.5 py-0.5 bg-orange-100 text-orange-700 rounded">&lt;30%</span>
-                        <span className="px-1.5 py-0.5 bg-amber-300 text-amber-900 rounded">30-59%</span>
-                        <span className="px-1.5 py-0.5 bg-emerald-400 text-emerald-950 rounded">60-84%</span>
-                        <span className="px-1.5 py-0.5 bg-emerald-500 text-white rounded">&ge;85%</span>
-                      </div>
-                    </div>
+                    <HeatmapMatrix 
+                      data={rawData} 
+                      categories={kategoriList} 
+                      wilayahs={wilayahList} 
+                      reportMonth={reportMonth}
+                    />
                   </div>
 
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -2902,6 +2915,12 @@
                               </div>
                             </th>
                           )}
+						  <th onClick={() => handleSort('kategoriProject')} className="py-2.5 px-2.5 text-right cursor-pointer hover:bg-slate-100 transition-colors">
+                            <div className="flex items-center justify-end space-x-1">
+                              <span>Kategori Project</span>
+                              {renderSortIcon('kategoriProject')}
+                            </div>
+                          </th>
                           <th onClick={() => handleSort('enpAwal')} className="py-2.5 px-2.5 text-right cursor-pointer hover:bg-slate-100 transition-colors">
                             <div className="flex items-center justify-end space-x-1">
                               <span>ENP Awal</span>
@@ -3013,6 +3032,10 @@
                                     </span>
                                   </td>
                                 )}
+
+<td className="py-2 px-2.5 text-center font-medium text-slate-600 whitespace-nowrap text-[11px]">
+  {row.kategoriProject || '-'}
+</td>
 
                                 <td className="py-2 px-2.5 text-right font-medium text-slate-600 whitespace-nowrap text-[11px]" title={formatIDR(row.enpAwal)}>
                                   {formatSlimIDR(row.enpAwal)}
@@ -3217,19 +3240,29 @@
                           <span className="text-slate-400 font-bold block text-[10px] uppercase">d. Mata Anggaran</span>
                           <p className="font-extrabold text-slate-800 text-xs mt-0.5">{selectedProjectForModal.kategori || '-'}</p>
                         </div>
+						
+						<div>
+						  <span className="text-slate-400 font-bold block text-[10px] uppercase">e. COA (No. Rekg)</span>
+						  <p className="font-mono font-bold text-slate-800 text-xs mt-0.5">{selectedProjectForModal.coa || '-'}</p>
+						</div>
 
+						<div className="sm:col-span-2">
+						  <span className="text-slate-400 font-bold block text-[10px] uppercase">f. Nama Rekening</span>
+						  <p className="font-bold text-slate-800 text-xs mt-0.5">{selectedProjectForModal.namaRekening || '-'}</p>
+						</div>
+						
                         <div>
-                          <span className="text-slate-400 font-bold block text-[10px] uppercase">e. Project Number</span>
+                          <span className="text-slate-400 font-bold block text-[10px] uppercase">g. Project Number</span>
                           <p className="font-black text-bni-teal text-xs mt-0.5">{selectedProjectForModal.projectNumber || '-'}</p>
                         </div>
 
                         <div className="sm:col-span-2 md:col-span-3">
-                          <span className="text-slate-400 font-bold block text-[10px] uppercase">f. Nama Project</span>
+                          <span className="text-slate-400 font-bold block text-[10px] uppercase">h. Nama Project</span>
                           <p className="font-bold text-slate-800 text-xs mt-0.5">{selectedProjectForModal.namaProject || '-'}</p>
                         </div>
 
                         <div>
-                          <span className="text-slate-400 font-bold block text-[10px] uppercase">g. Status ENP</span>
+                          <span className="text-slate-400 font-bold block text-[10px] uppercase">i. Status ENP</span>
                           <span className={`inline-block font-bold text-[10px] px-2 py-0.5 rounded mt-1 ${
                             isPenyesuaianEnp ? 'bg-amber-100 text-amber-800' : 'bg-slate-200 text-slate-700'
                           }`}>
@@ -3238,7 +3271,7 @@
                         </div>
 
                         <div>
-                          <span className="text-slate-400 font-bold block text-[10px] uppercase">h. Status Project</span>
+                          <span className="text-slate-400 font-bold block text-[10px] uppercase">j. Status Project</span>
                           <span className={`inline-block font-bold text-[10px] px-2 py-0.5 rounded mt-1 ${
                             isNonAktif ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700'
                           }`}>
@@ -3247,12 +3280,12 @@
                         </div>
 
                         <div>
-                          <span className="text-slate-400 font-bold block text-[10px] uppercase">i. ENP Awal (Rp)</span>
+                          <span className="text-slate-400 font-bold block text-[10px] uppercase">k. ENP Awal (Rp)</span>
                           <p className="font-extrabold text-slate-700 text-xs mt-0.5">{formatIDR(selectedProjectForModal.enpAwal)}</p>
                         </div>
 
                         <div>
-                          <span className="text-slate-400 font-bold block text-[10px] uppercase">j. Usul Perubahan ENP (Rp)</span>
+                          <span className="text-slate-400 font-bold block text-[10px] uppercase">l. Usul Perubahan ENP (Rp)</span>
                           <p className="font-extrabold text-amber-700 text-xs mt-0.5">
                             {selectedProjectForModal.usulPerubahanEnp !== null ? formatIDR(selectedProjectForModal.usulPerubahanEnp) : '-'}
                           </p>
@@ -3260,15 +3293,15 @@
 
                         <div className="border-t pt-2 border-slate-200 sm:col-span-2 md:col-span-3 lg:col-span-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
                           <div>
-                            <span className="text-slate-400 font-bold block text-[10px] uppercase">k. Usul Alokasi Awal</span>
+                            <span className="text-slate-400 font-bold block text-[10px] uppercase">m. Usul Alokasi Awal</span>
                             <p className="font-black text-bni-teal text-xs mt-0.5">{formatIDR(selectedProjectForModal.alokasiAwal)}</p>
                           </div>
                           <div>
-                            <span className="text-slate-400 font-bold block text-[10px] uppercase">l. Usul Alokasi Revisi RBB</span>
+                            <span className="text-slate-400 font-bold block text-[10px] uppercase">n. Usul Alokasi Revisi RBB</span>
                             <p className="font-black text-amber-700 text-xs mt-0.5">{formatIDR(selectedProjectForModal.alokasiRevisiRbb)}</p>
                           </div>
                           <div>
-                            <span className="text-slate-400 font-bold block text-[10px] uppercase">m. Alokasi EFS</span>
+                            <span className="text-slate-400 font-bold block text-[10px] uppercase">o. Alokasi EFS</span>
                             <p className="font-black text-blue-700 text-xs mt-0.5">{formatIDR(selectedProjectForModal.aloEfs || selectedProjectForModal.alokasiEfs)}</p>
                           </div>
                         </div>
