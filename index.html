@@ -69,6 +69,7 @@
     const { useState, useEffect, useMemo, useRef } = React;
 
     const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbxf89NXCAtrjZn3bFdhtO45DfikiDn8SiYavFBDerqyzIBeUt8yiKAxXoSwOu24N9z-mA/exec";
+    const PROGNOSA_API_URL = "https://script.google.com/macros/s/AKfycbz4TWK_hRVdz-Dsdpy0RGko2-rQFuqG6aA25UUJlcOxN7uXlGCFrWdgIOttVun5LxLk/exec";
     const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Ags', 'Sep', 'Okt', 'Nov', 'Des'];
 
     const getEfsValue = (row, month) => {
@@ -247,9 +248,7 @@
 
                 return (
                   <tr key={w} className={rowBgColor}>
-                    <td className="p-1.5 font-bold text-slate-800 border border-slate-200 text-left">
-                      {w}
-                    </td>
+                    <td className="p-1.5 font-bold text-slate-800 border border-slate-200 text-left">{w}</td>
                     {categories.map(c => {
                       const item = matrixData[w] ? matrixData[w][c] : { alokasiEfs: 0, realisasi: 0 };
                       const pct = item.alokasiEfs > 0 ? (item.realisasi / item.alokasiEfs) * 100 : 0;
@@ -257,109 +256,49 @@
 
                       return (
                         <React.Fragment key={`${w}-${c}`}>
-                          {/* Tooltip Alokasi Rupiah Penuh */}
-                          <td 
-                            className="p-1 border border-slate-200 text-slate-700 font-medium whitespace-nowrap cursor-default hover:bg-slate-100"
-                            title={`${w} - ${c}\nAlokasi: ${formatIDR(item.alokasiEfs)}`}
-                          >
+                          <td className="p-1 border border-slate-200 text-slate-700 font-medium whitespace-nowrap cursor-default hover:bg-slate-100" title={`${w} - ${c}\nAlokasi: ${formatIDR(item.alokasiEfs)}`}>
                             {item.alokasiEfs > 0 ? formatSlimIDR(item.alokasiEfs) : '-'}
                           </td>
-                          {/* Tooltip Realisasi Rupiah Penuh */}
-                          <td 
-                            className="p-1 border border-slate-200 text-slate-700 font-medium whitespace-nowrap cursor-default hover:bg-slate-100"
-                            title={`${w} - ${c}\nRealisasi: ${formatIDR(item.realisasi)}`}
-                          >
+                          <td className="p-1 border border-slate-200 text-slate-700 font-medium whitespace-nowrap cursor-default hover:bg-slate-100" title={`${w} - ${c}\nRealisasi: ${formatIDR(item.realisasi)}`}>
                             {item.realisasi > 0 ? formatSlimIDR(item.realisasi) : '-'}
                           </td>
-                          {/* Tooltip Persentase */}
-                          <td 
-                            style={pctStyle} 
-                            className="p-1 border border-slate-200 font-extrabold whitespace-nowrap cursor-default"
-                            title={`${w} - ${c}\nAlokasi: ${formatIDR(item.alokasiEfs)}\nRealisasi: ${formatIDR(item.realisasi)}\nRealisasi (%): ${pct.toFixed(2)}%`}
-                          >
+                          <td style={pctStyle} className="p-1 border border-slate-200 font-extrabold whitespace-nowrap cursor-default" title={`${w} - ${c}\nAlokasi: ${formatIDR(item.alokasiEfs)}\nRealisasi: ${formatIDR(item.realisasi)}\nRealisasi (%): ${pct.toFixed(2)}%`}>
                             {item.alokasiEfs > 0 ? `${pct.toFixed(2)}%` : '-'}
                           </td>
                         </React.Fragment>
                       );
                     })}
-
-                    {/* Total Baris Wilayah dengan Tooltip Rupiah Penuh */}
-                    <td 
-                      className="p-1 border border-slate-300 font-bold text-slate-900 bg-slate-100 whitespace-nowrap cursor-default"
-                      title={`Total ${w}\nAlokasi: ${formatIDR(rowItem.alokasiEfs)}`}
-                    >
+                    <td className="p-1 border border-slate-300 font-bold text-slate-900 bg-slate-100 whitespace-nowrap cursor-default" title={`Total ${w}\nAlokasi: ${formatIDR(rowItem.alokasiEfs)}`}>
                       {rowItem.alokasiEfs > 0 ? formatSlimIDR(rowItem.alokasiEfs) : '-'}
                     </td>
-                    <td 
-                      className="p-1 border border-slate-300 font-bold text-slate-900 bg-slate-100 whitespace-nowrap cursor-default"
-                      title={`Total ${w}\nRealisasi: ${formatIDR(rowItem.realisasi)}`}
-                    >
+                    <td className="p-1 border border-slate-300 font-bold text-slate-900 bg-slate-100 whitespace-nowrap cursor-default" title={`Total ${w}\nRealisasi: ${formatIDR(rowItem.realisasi)}`}>
                       {rowItem.realisasi > 0 ? formatSlimIDR(rowItem.realisasi) : '-'}
                     </td>
-                    <td 
-                      className="p-1 border border-slate-300 font-black text-slate-900 bg-slate-100 whitespace-nowrap cursor-default"
-                      title={`Total ${w}\nAlokasi: ${formatIDR(rowItem.alokasiEfs)}\nRealisasi: ${formatIDR(rowItem.realisasi)}\nRealisasi (%): ${rowPct.toFixed(2)}%`}
-                    >
+                    <td className="p-1 border border-slate-300 font-black text-slate-900 bg-slate-100 whitespace-nowrap cursor-default" title={`Total ${w}\nAlokasi: ${formatIDR(rowItem.alokasiEfs)}\nRealisasi: ${formatIDR(rowItem.realisasi)}\nRealisasi (%): ${rowPct.toFixed(2)}%`}>
                       {rowItem.alokasiEfs > 0 ? `${rowPct.toFixed(2)}%` : '-'}
                     </td>
                   </tr>
                 );
               })}
-
-              {/* Baris Grand Total Bawah dengan Tooltip Rupiah Penuh */}
               <tr className="bg-[#D14817] text-white font-black">
                 <td className="p-2 border border-orange-800 text-left">Total</td>
                 {categories.map(c => {
                   const colItem = colTotals[c] || { alokasiEfs: 0, realisasi: 0 };
                   const colPct = colItem.alokasiEfs > 0 ? (colItem.realisasi / colItem.alokasiEfs) * 100 : 0;
-
                   return (
                     <React.Fragment key={`tot-${c}`}>
-                      <td 
-                        className="p-1 border border-orange-800 whitespace-nowrap cursor-default"
-                        title={`Total Kategori ${c}\nAlokasi: ${formatIDR(colItem.alokasiEfs)}`}
-                      >
-                        {colItem.alokasiEfs > 0 ? formatSlimIDR(colItem.alokasiEfs) : '-'}
-                      </td>
-                      <td 
-                        className="p-1 border border-orange-800 whitespace-nowrap cursor-default"
-                        title={`Total Kategori ${c}\nRealisasi: ${formatIDR(colItem.realisasi)}`}
-                      >
-                        {colItem.realisasi > 0 ? formatSlimIDR(colItem.realisasi) : '-'}
-                      </td>
-                      <td 
-                        className="p-1 border border-orange-800 whitespace-nowrap cursor-default"
-                        title={`Total Kategori ${c}\nAlokasi: ${formatIDR(colItem.alokasiEfs)}\nRealisasi: ${formatIDR(colItem.realisasi)}\nRealisasi (%): ${colPct.toFixed(2)}%`}
-                      >
-                        {colItem.alokasiEfs > 0 ? `${colPct.toFixed(2)}%` : '-'}
-                      </td>
+                      <td className="p-1 border border-orange-800 whitespace-nowrap cursor-default" title={`Total Kategori ${c}\nAlokasi: ${formatIDR(colItem.alokasiEfs)}`}>{colItem.alokasiEfs > 0 ? formatSlimIDR(colItem.alokasiEfs) : '-'}</td>
+                      <td className="p-1 border border-orange-800 whitespace-nowrap cursor-default" title={`Total Kategori ${c}\nRealisasi: ${formatIDR(colItem.realisasi)}`}>{colItem.realisasi > 0 ? formatSlimIDR(colItem.realisasi) : '-'}</td>
+                      <td className="p-1 border border-orange-800 whitespace-nowrap cursor-default" title={`Total Kategori ${c}\nAlokasi: ${formatIDR(colItem.alokasiEfs)}\nRealisasi: ${formatIDR(colItem.realisasi)}\nRealisasi (%): ${colPct.toFixed(2)}%`}>{colItem.alokasiEfs > 0 ? `${colPct.toFixed(2)}%` : '-'}</td>
                     </React.Fragment>
                   );
                 })}
-
-                <td 
-                  className="p-1 border border-orange-800 whitespace-nowrap cursor-default"
-                  title={`GRAND TOTAL\nAlokasi: ${formatIDR(grandTotal.alokasiEfs)}`}
-                >
-                  {grandTotal.alokasiEfs > 0 ? formatSlimIDR(grandTotal.alokasiEfs) : '-'}
-                </td>
-                <td 
-                  className="p-1 border border-orange-800 whitespace-nowrap cursor-default"
-                  title={`GRAND TOTAL\nRealisasi: ${formatIDR(grandTotal.realisasi)}`}
-                >
-                  {grandTotal.realisasi > 0 ? formatSlimIDR(grandTotal.realisasi) : '-'}
-                </td>
-                <td 
-                  className="p-1 border border-orange-800 whitespace-nowrap cursor-default"
-                  title={`GRAND TOTAL\nAlokasi: ${formatIDR(grandTotal.alokasiEfs)}\nRealisasi: ${formatIDR(grandTotal.realisasi)}\nRealisasi (%): ${(grandTotal.realisasi / grandTotal.alokasiEfs * 100).toFixed(2)}%`}
-                >
-                  {grandTotal.alokasiEfs > 0 ? `${(grandTotal.realisasi / grandTotal.alokasiEfs * 100).toFixed(2)}%` : '-'}
-                </td>
+                <td className="p-1 border border-orange-800 whitespace-nowrap cursor-default" title={`GRAND TOTAL\nAlokasi: ${formatIDR(grandTotal.alokasiEfs)}`}>{grandTotal.alokasiEfs > 0 ? formatSlimIDR(grandTotal.alokasiEfs) : '-'}</td>
+                <td className="p-1 border border-orange-800 whitespace-nowrap cursor-default" title={`GRAND TOTAL\nRealisasi: ${formatIDR(grandTotal.realisasi)}`}>{grandTotal.realisasi > 0 ? formatSlimIDR(grandTotal.realisasi) : '-'}</td>
+                <td className="p-1 border border-orange-800 whitespace-nowrap cursor-default" title={`GRAND TOTAL\nAlokasi: ${formatIDR(grandTotal.alokasiEfs)}\nRealisasi: ${formatIDR(grandTotal.realisasi)}\nRealisasi (%): ${(grandTotal.realisasi / grandTotal.alokasiEfs * 100).toFixed(2)}%`}>{grandTotal.alokasiEfs > 0 ? `${(grandTotal.realisasi / grandTotal.alokasiEfs * 100).toFixed(2)}%` : '-'}</td>
               </tr>
             </tbody>
           </table>
-
-          {/* Legenda Warna */}
           <div className="flex flex-wrap items-center gap-2 pt-2 text-[10px] font-bold text-slate-600">
             <span>Legend:</span>
             <span className="px-2 py-0.5 bg-[#F15A24] text-white rounded">0 %</span>
@@ -568,7 +507,7 @@
       );
     };
 
-    // KOMPONEN UNTUK HALAMAN UPLOAD DATA REPORT BULANAN BARU
+    // KOMPONEN UPLOAD LAPORAN BARU (VERSI ORIGINAL)
     const UploadMonthlyReportView = ({ existingProjects, masterOutletDict, masterRekgDict, onUpdateDatabase, onUploadSuccess }) => {
       const [uploadMonth, setUploadMonth] = useState('Ags');
       const [parsedData, setParsedData] = useState([]);
@@ -641,8 +580,12 @@
 
                 const rawCoa = getColumnValue(row, ['COA', 'No. Rekg', 'Rekening', 'COA (No. Rekg)']) || '';
 
-                let parsedMataAnggaran = '-';
-                let parsedKategori = 'Bangunan Gedung';
+				const rawStatusEfs = getColumnValue(row, [
+                  'Status EFS', 'STATUS_EFS', 'Status Efs', 'Status', 'STATUS'
+                ]) || 'Active';
+
+                let parsedStatusEfs = String(rawStatusEfs).trim();
+                if (parsedStatusEfs.toLowerCase() === 'actived') parsedStatusEfs = 'Active';
                 
                 const parts = String(rawCoa).split('-');
                 if (parts.length >= 3) {
@@ -679,7 +622,7 @@
                   if (excelNama) namaProj = String(excelNama).trim();
                 }
 
-                return {
+				return {
                   id: index + 1,
                   projectNumber: cleanProjNum || '-',
                   namaProject: namaProj,
@@ -689,14 +632,15 @@
                   operatingUnit: parsedOpUnit,
                   mataAnggaran: parsedMataAnggaran,
                   kategori: parsedKategori,
+                  statusEfs: parsedStatusEfs, // Pastikan ada koma di sini
                   wilayahUnit: `${parsedWilayah} - ${parsedOpUnit}`,
                   alokasiEfs: valEfs,
                   realisasiBulan: valReal,
                   isNewProject: isNew,
                   dbRecord: dbRecord
-                };
-              });
-
+                }; // Kurung kurawal objek tertutup tanpa koma di akhir
+              }); // Kurung tutup untuk .map()
+            
               setParsedData(processed);
             } catch (err) {
               alert("Gagal membaca file spreadsheet! Pastikan format file sesuai.");
@@ -970,6 +914,7 @@
                         <th className="py-2.5 px-3">Operating Unit</th>
                         <th className="py-2.5 px-3">Mata Anggaran</th>
                         <th className="py-2.5 px-3">Kategori</th>
+						<th className="py-2.5 px-3">Status EFS</th>
                         <th className="py-2.5 px-3 text-right">Alokasi EFS ({uploadMonth})</th>
                         <th className="py-2.5 px-3 text-right">Realisasi ({uploadMonth})</th>
                       </tr>
@@ -998,6 +943,7 @@
                           <td className="py-2 px-3">{row.operatingUnit}</td>
                           <td className="py-2 px-3 font-semibold text-slate-700">{row.mataAnggaran}</td>
                           <td className="py-2 px-3 font-semibold text-slate-700">{row.kategori}</td>
+						  <td className="py-2 px-3 font-bold text-slate-700">{row.statusEfs}</td>
                           <td className="py-2 px-3 text-right font-semibold text-blue-700">{formatSlimIDR(row.alokasiEfs)}</td>
                           <td className="py-2 px-3 text-right font-extrabold text-bni-orange">{formatSlimIDR(row.realisasiBulan)}</td>
                         </tr>
@@ -1028,7 +974,7 @@
     };
 
     // KOMPONEN HISTORICAL ANALYSIS VIEW
-    const HistoricalAnalysisView = ({ data }) => {
+	const HistoricalAnalysisView = ({ data }) => {
       const [m1, setM1] = useState('Jun');
       const [m2, setM2] = useState('Jul');
       const [searchQuery, setSearchQuery] = useState('');
@@ -1039,7 +985,7 @@
       const chartHistRef = useRef(null);
 
       const monthlySummary = useMemo(() => {
-        const result = MONTHS.map((m) => {
+        return MONTHS.map((m) => {
           let efsTot = 0;
           let realTot = 0;
 
@@ -1051,8 +997,6 @@
           const pct = efsTot > 0 ? (realTot / efsTot) * 100 : 0;
           return { month: m, alokasi: efsTot, realisasi: realTot, pct };
         });
-
-        return result;
       }, [data]);
 
       useEffect(() => {
@@ -1272,6 +1216,7 @@
 
       return (
         <div className="space-y-6 animate-fadeIn">
+          {/* Grafik Tren */}
           <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm space-y-3">
             <div className="flex items-center justify-between border-b pb-3 border-slate-100">
               <div>
@@ -1289,6 +1234,7 @@
             </div>
           </div>
 
+          {/* Bagian Tabel Komparasi */}
           <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm flex flex-col overflow-hidden max-h-[650px]">
             <div className="p-5 border-b border-slate-100 flex flex-wrap items-center justify-between gap-4 bg-slate-50/50">
               <div>
@@ -1299,6 +1245,7 @@
                 <p className="text-xs text-slate-400">Lakukan komparasi pergerakan alokasi & realisasi proyek antar dua bulan pilihan</p>
               </div>
 
+              {/* Selector Bulan A dan Bulan B */}
               <div className="flex items-center space-x-3 bg-white p-1.5 rounded-xl border border-slate-200 shadow-sm">
                 <div className="flex items-center space-x-1.5">
                   <span className="text-xs font-bold text-slate-500 pl-1">Bulan A:</span>
@@ -1326,6 +1273,7 @@
               </div>
             </div>
 
+            {/* 3 Cards Ringkasan Statistik */}
             <div className="p-5 grid grid-cols-1 md:grid-cols-3 gap-4 bg-slate-100/40 border-b border-slate-100">
               <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm">
                 <span className="text-[10px] font-bold text-slate-400 uppercase block">Total Alokasi EFS ({m1} vs {m2})</span>
@@ -1359,6 +1307,7 @@
               </div>
             </div>
 
+            {/* Bar Pencarian, Filter Perubahan, dan Tombol Export */}
             <div className="p-3 bg-white border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
               <div className="relative min-w-[220px]">
                 <i data-lucide="search" className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5"></i>
@@ -1420,53 +1369,62 @@
               </div>
             </div>
 
+            {/* Tabel Utama dengan Fitur Sort di Header */}
             <div className="overflow-x-auto overflow-y-auto custom-scrollbar flex-1">
               <table className="w-full text-left text-xs text-slate-600">
                 <thead className="bg-slate-50 text-slate-500 font-extrabold uppercase text-[9px] tracking-wider border-b border-slate-200 sticky top-0 z-10 select-none shadow-sm">
                   <tr>
                     <th className="py-2.5 px-2 text-center w-10">No</th>
+                    
                     <th onClick={() => handleHistSort('namaProject')} className="py-2.5 px-3 cursor-pointer hover:bg-slate-100 transition-colors">
                       <div className="flex items-center space-x-1">
                         <span>Project Number & Nama Project</span>
                         {renderHistSortIcon('namaProject')}
                       </div>
                     </th>
+
                     <th onClick={() => handleHistSort('wilayah')} className="py-2.5 px-3 cursor-pointer hover:bg-slate-100 transition-colors">
                       <div className="flex items-center space-x-1">
                         <span>Wilayah / Unit</span>
                         {renderHistSortIcon('wilayah')}
                       </div>
                     </th>
+
                     <th onClick={() => handleHistSort('efs1')} className="py-2.5 px-3 text-right cursor-pointer hover:bg-slate-100 transition-colors">
                       <div className="flex items-center justify-end space-x-1">
                         <span>Alokasi EFS ({m1})</span>
                         {renderHistSortIcon('efs1')}
                       </div>
                     </th>
+
                     <th onClick={() => handleHistSort('efs2')} className="py-2.5 px-3 text-right cursor-pointer hover:bg-slate-100 transition-colors">
                       <div className="flex items-center justify-end space-x-1">
                         <span>Alokasi EFS ({m2})</span>
                         {renderHistSortIcon('efs2')}
                       </div>
                     </th>
+
                     <th onClick={() => handleHistSort('diffEfs')} className="py-2.5 px-3 text-right bg-amber-50/80 cursor-pointer hover:bg-amber-100 transition-colors">
                       <div className="flex items-center justify-end space-x-1">
                         <span>Selisih EFS</span>
                         {renderHistSortIcon('diffEfs')}
                       </div>
                     </th>
+
                     <th onClick={() => handleHistSort('real1')} className="py-2.5 px-3 text-right cursor-pointer hover:bg-slate-100 transition-colors">
                       <div className="flex items-center justify-end space-x-1">
                         <span>Realisasi Kum. ({m1})</span>
                         {renderHistSortIcon('real1')}
                       </div>
                     </th>
+
                     <th onClick={() => handleHistSort('real2')} className="py-2.5 px-3 text-right cursor-pointer hover:bg-slate-100 transition-colors">
                       <div className="flex items-center justify-end space-x-1">
                         <span>Realisasi Kum. ({m2})</span>
                         {renderHistSortIcon('real2')}
                       </div>
                     </th>
+
                     <th onClick={() => handleHistSort('diffReal')} className="py-2.5 px-3 text-right bg-orange-50/80 cursor-pointer hover:bg-orange-100 transition-colors">
                       <div className="flex items-center justify-end space-x-1">
                         <span>Selisih Realisasi</span>
@@ -1540,6 +1498,270 @@
       );
     };
 
+    // KOMPONEN HALAMAN PROGNOSA
+    const PrognosaView = () => {
+      const [loading, setLoading] = useState(true);
+      const [progData, setProgData] = useState([]);
+      const [wilayahFilter, setWilayahFilter] = useState('ALL');
+      const [unitFilter, setUnitFilter] = useState('ALL');
+      const [statusFilter, setStatusFilter] = useState('ALL');
+      const [searchTerm, setSearchTerm] = useState('');
+      const [modalInfo, setModalInfo] = useState({ show: false, status: '', projectNum: '', projectName: '', payload: '' });
+
+      const PROGNOSA_API_URL = "https://script.google.com/macros/s/AKfycbz4TWK_hRVdz-Dsdpy0RGko2-rQFuqG6aA25UUJlcOxN7uXlGCFrWdgIOttVun5LxLk/exec";
+
+      useEffect(() => {
+        fetch(`${PROGNOSA_API_URL}?action=get_data`)
+          .then(res => res.json())
+          .then(result => {
+            setLoading(false);
+            const projects = result.projects || [];
+            const details = result.confirmedDetails || {};
+            const rejected = result.rejectedProjects || [];
+
+            let activeMapped = projects
+              .filter(p => p.IsConfirmedState === true)
+              .map(p => {
+                let d = details[p.Project_Number] || null;
+                if(d) { d.projectStatus = "Aktif"; }
+                return { base: p, detail: d };
+              });
+
+            let rejectedMapped = rejected.map(r => ({
+              base: { Wilayah: r.Wilayah, Project_Number: r.Project_Number, Nama_Project: r.Nama_Project, Alokasi_ENP: r.Alokasi_ENP },
+              detail: {
+                entitas: r.Entitas,
+                operatingUnit: r.Operating_Unit,
+                alokasiValue: parseFloat(r.Alokasi_ENP || 0),
+                alokasiStatus: "Dropped",
+                projectStatus: "Non Aktif",
+                totalRealisasi: 0,
+                alasanDropped: r.User_Executor || "Takeout / Batal.",
+                months: { jan:0, feb:0, mar:0, apr:0, mei:0, jun:0, jul:0, aug:0, sep:0, oct:0, nov:0, dec:0 }
+              }
+            }));
+
+            let combined = activeMapped.concat(rejectedMapped).sort((a, b) => {
+              let wilA = (a.base.Wilayah || "").toString().toUpperCase();
+              let wilB = (b.base.Wilayah || "").toString().toUpperCase();
+              return wilA.localeCompare(wilB);
+            });
+
+            setProgData(combined);
+          })
+          .catch(err => {
+            console.error(err);
+            setLoading(false);
+          });
+      }, []);
+
+      const wilayahList = useMemo(() => {
+        const setW = new Set();
+        progData.forEach(item => { if (item.base.Wilayah) setW.add(item.base.Wilayah); });
+        return Array.from(setW).sort();
+      }, [progData]);
+
+      const unitList = useMemo(() => {
+        const setU = new Set();
+        progData.forEach(item => {
+          if (item.detail && (wilayahFilter === 'ALL' || item.base.Wilayah === wilayahFilter)) {
+            setU.add(`${item.detail.entitas}|${item.detail.operatingUnit}`);
+          }
+        });
+        return Array.from(setU).sort();
+      }, [progData, wilayahFilter]);
+
+      const filteredList = useMemo(() => {
+        return progData.filter(item => {
+          if (!item.detail) return false;
+          const matchWilayah = (wilayahFilter === 'ALL' || item.base.Wilayah === wilayahFilter);
+          let matchUnit = true;
+          if (unitFilter !== 'ALL') {
+            matchUnit = (`${item.detail.entitas}|${item.detail.operatingUnit}` === unitFilter);
+          }
+          const matchStatus = (statusFilter === 'ALL' || item.detail.projectStatus === statusFilter);
+          const matchSearch = item.base.Project_Number.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                             item.base.Nama_Project.toLowerCase().includes(searchTerm.toLowerCase());
+          return matchWilayah && matchUnit && matchStatus && matchSearch;
+        });
+      }, [progData, wilayahFilter, unitFilter, statusFilter, searchTerm]);
+
+      const kpiValues = useMemo(() => {
+        let count = filteredList.length;
+        let totalEnp = 0;
+        let totalReal = 0;
+        filteredList.forEach(item => {
+          totalEnp += parseFloat(item.detail.alokasiValue || 0);
+          totalReal += parseFloat(item.detail.totalRealisasi || 0);
+        });
+        return { count, totalEnp, totalReal };
+      }, [filteredList]);
+
+      return (
+        <div className="space-y-6 animate-fadeIn">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm">
+              <span className="text-xs font-bold text-slate-400 uppercase">Total Project Terkonfirmasi</span>
+              <h4 className="text-2xl font-black text-slate-800 mt-2">{kpiValues.count} Project</h4>
+            </div>
+            <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm border-l-4 border-l-bni-orange">
+              <span className="text-xs font-bold text-slate-400 uppercase">Total Pagu Maks Anggaran</span>
+              <h4 className="text-2xl font-black text-bni-orange mt-2">Rp {new Intl.NumberFormat('id-ID').format(kpiValues.totalEnp)}</h4>
+            </div>
+            <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm border-l-4 border-l-emerald-600">
+              <span className="text-xs font-bold text-slate-400 uppercase">Total Usul Rencana Realisasi</span>
+              <h4 className="text-2xl font-black text-emerald-600 mt-2">Rp {new Intl.NumberFormat('id-ID').format(kpiValues.totalReal)}</h4>
+            </div>
+          </div>
+
+          <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm space-y-4">
+            <div className="flex flex-wrap items-center gap-3 bg-slate-50 p-4 rounded-xl border border-slate-200">
+              <div className="flex items-center space-x-2 text-xs font-bold text-slate-700">
+                <span>Wilayah:</span>
+                <select value={wilayahFilter} onChange={e => { setWilayahFilter(e.target.value); setUnitFilter('ALL'); }} className="bg-white border border-slate-200 p-2 rounded-lg text-xs font-semibold">
+                  <option value="ALL">-- Semua Wilayah --</option>
+                  {wilayahList.map(w => <option key={w} value={w}>{w}</option>)}
+                </select>
+              </div>
+              <div className="flex items-center space-x-2 text-xs font-bold text-slate-700">
+                <span>Unit Kerja:</span>
+                <select value={unitFilter} onChange={e => setUnitFilter(e.target.value)} className="bg-white border border-slate-200 p-2 rounded-lg text-xs font-semibold">
+                  <option value="ALL">-- Semua Unit Kerja --</option>
+                  {unitList.map(u => {
+                    let s = u.split('|');
+                    return <option key={u} value={u}>[{s[0]}] {s[1]}</option>;
+                  })}
+                </select>
+              </div>
+              <div className="flex items-center space-x-2 text-xs font-bold text-slate-700">
+                <span>Status:</span>
+                <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="bg-white border border-slate-200 p-2 rounded-lg text-xs font-semibold">
+                  <option value="ALL">-- Semua Status --</option>
+                  <option value="Aktif">Aktif</option>
+                  <option value="Non Aktif">Non Aktif</option>
+                </select>
+              </div>
+              <div className="relative flex-1 min-w-[200px]">
+                <input type="text" placeholder="Cari No Project / Nama..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-3 pr-3 py-2 bg-white border border-slate-200 rounded-lg text-xs focus:outline-none focus:border-bni-teal" />
+              </div>
+            </div>
+
+            {loading ? (
+              <div className="text-center py-12 text-xs font-bold text-bni-teal">Sinkronisasi Database Prognosa...</div>
+            ) : (
+              <div className="overflow-x-auto max-h-[650px] border border-slate-200 rounded-xl custom-scrollbar">
+                <table className="w-full text-left text-xs text-slate-600 border-collapse min-w-[1900px]">
+                  <thead className="bg-[#004d4d] text-white font-extrabold uppercase text-[9px] sticky top-0 z-10">
+                    <tr>
+                      <th rowSpan="2" className="py-2.5 px-3 border border-teal-800">Wilayah</th>
+                      <th rowSpan="2" className="py-2.5 px-3 border border-teal-800">Entitas - Operating Unit</th>
+                      <th rowSpan="2" className="py-2.5 px-3 border border-teal-800" style={{width: '260px'}}>Project & Nama Project</th>
+                      <th rowSpan="2" className="py-2.5 px-3 border border-teal-800 text-right">ENP Awal (Rp)</th>
+                      <th rowSpan="2" className="py-2.5 px-3 border border-teal-800 text-right">Plafon ENP Usulan (Rp)</th>
+                      <th rowSpan="2" className="py-2.5 px-3 border border-teal-800 text-center">Status ENP</th>
+                      <th rowSpan="2" className="py-2.5 px-3 border border-teal-800 text-center">Status Project</th>
+                      <th rowSpan="2" className="py-2.5 px-3 border border-teal-800 text-right bg-[#FFF2EE] text-bni-orange">Usulan Alokasi RBB (Rp)</th>
+                      <th colSpan="4" className="py-2 px-2 border border-teal-800 text-center">Triwulan I (Q1)</th>
+                      <th colSpan="4" className="py-2 px-2 border border-teal-800 text-center">Triwulan II (Q2)</th>
+                      <th colSpan="4" className="py-2 px-2 border border-teal-800 text-center">Triwulan III (Q3)</th>
+                      <th colSpan="4" className="py-2 px-2 border border-teal-800 text-center">Triwulan IV (Q4)</th>
+                      <th rowSpan="2" className="py-2.5 px-3 border border-teal-800 text-right bg-[#EAF4F4] text-bni-teal">Total Rencana Realisasi (Rp)</th>
+                    </tr>
+                    <tr className="bg-[#006666] text-white text-[8px]">
+                      <th className="py-1 px-1.5 border border-teal-800">Jan</th><th className="py-1 px-1.5 border border-teal-800">Feb</th><th className="py-1 px-1.5 border border-teal-800">Mar</th><th className="py-1 px-1.5 border border-teal-800 bg-teal-900">Total Q1</th>
+                      <th className="py-1 px-1.5 border border-teal-800">Apr</th><th className="py-1 px-1.5 border border-teal-800">Mei</th><th className="py-1 px-1.5 border border-teal-800">Jun</th><th className="py-1 px-1.5 border border-teal-800 bg-teal-900">Total Q2</th>
+                      <th className="py-1 px-1.5 border border-teal-800">Jul</th><th className="py-1 px-1.5 border border-teal-800">Aug</th><th className="py-1 px-1.5 border border-teal-800">Sep</th><th className="py-1 px-1.5 border border-teal-800 bg-teal-900">Total Q3</th>
+                      <th className="py-1 px-1.5 border border-teal-800">Oct</th><th className="py-1 px-1.5 border border-teal-800">Nov</th><th className="py-1 px-1.5 border border-teal-800">Des</th><th className="py-1 px-1.5 border border-teal-800 bg-teal-900">Total Q4</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {filteredList.map((item, idx) => {
+                      const det = item.detail;
+                      const q1 = (det.months.jan||0) + (det.months.feb||0) + (det.months.mar||0);
+                      const q2 = (det.months.apr||0) + (det.months.mei||0) + (det.months.jun||0);
+                      const q3 = (det.months.jul||0) + (det.months.aug||0) + (det.months.sep||0);
+                      const q4 = (det.months.oct||0) + (det.months.nov||0) + (det.months.dec||0);
+                      return (
+                        <tr key={idx} className="hover:bg-slate-50 transition-colors">
+                          <td className="py-2 px-3">{item.base.Wilayah}</td>
+                          <td className="py-2 px-3">[{det.entitas}] {det.operatingUnit}</td>
+                          <td className="py-2 px-3">
+                            <div style={{fontSize: '10px', color: '#64748b', fontFamily: 'monospace', fontWeight: 'bold'}}>{item.base.Project_Number}</div>
+                            <div style={{fontWeight: '700', color: '#004d4d'}}>{item.base.Nama_Project}</div>
+                          </td>
+                          <td className="py-2 px-3 text-right">{new Intl.NumberFormat('id-ID').format(item.base.Alokasi_ENP || 0)}</td>
+                          <td className="py-2 px-3 text-right font-bold">{new Intl.NumberFormat('id-ID').format(det.alokasiValue || 0)}</td>
+                          <td className="py-2 px-3 text-center">
+                            {det.alokasiStatus === 'Sesuai' && <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-full font-bold text-[10px]">Sesuai</span>}
+                            {det.alokasiStatus === 'Dropped' && <span className="px-2 py-0.5 bg-rose-100 text-rose-800 rounded-full font-bold text-[10px] cursor-pointer underline" onClick={() => setModalInfo({show:true, status:'Dropped', projectNum:item.base.Project_Number, projectName:item.base.Nama_Project, payload:det.alasanDropped})}>Dropped</span>}
+                            {det.alokasiStatus !== 'Sesuai' && det.alokasiStatus !== 'Dropped' && <span className="px-2 py-0.5 bg-amber-100 text-amber-800 rounded-full font-bold text-[10px] cursor-pointer underline" onClick={() => setModalInfo({show:true, status:'Penyesuaian', projectNum:item.base.Project_Number, projectName:item.base.Nama_Project, payload:det.Attachment_Link || det.Attachment_Link_Berkas})}>Penyesuaian</span>}
+                          </td>
+                          <td className="py-2 px-3 text-center">
+                            <span className={`px-2 py-0.5 rounded-full font-bold text-[10px] ${det.projectStatus === 'Aktif' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-700'}`}>{det.projectStatus}</span>
+                          </td>
+                          <td className="py-2 px-3 text-right font-bold text-bni-orange bg-orange-50/40">{new Intl.NumberFormat('id-ID').format(det.totalRealisasi || 0)}</td>
+                          <td className="py-2 px-2 text-right">{new Intl.NumberFormat('id-ID').format(det.months.jan||0)}</td>
+                          <td className="py-2 px-2 text-right">{new Intl.NumberFormat('id-ID').format(det.months.feb||0)}</td>
+                          <td className="py-2 px-2 text-right">{new Intl.NumberFormat('id-ID').format(det.months.mar||0)}</td>
+                          <td className="py-2 px-2 text-right font-bold bg-slate-50">{new Intl.NumberFormat('id-ID').format(q1)}</td>
+                          <td className="py-2 px-2 text-right">{new Intl.NumberFormat('id-ID').format(det.months.apr||0)}</td>
+                          <td className="py-2 px-2 text-right">{new Intl.NumberFormat('id-ID').format(det.months.mei||0)}</td>
+                          <td className="py-2 px-2 text-right">{new Intl.NumberFormat('id-ID').format(det.months.jun||0)}</td>
+                          <td className="py-2 px-2 text-right font-bold bg-slate-50">{new Intl.NumberFormat('id-ID').format(q2)}</td>
+                          <td className="py-2 px-2 text-right">{new Intl.NumberFormat('id-ID').format(det.months.jul||0)}</td>
+                          <td className="py-2 px-2 text-right">{new Intl.NumberFormat('id-ID').format(det.months.aug||0)}</td>
+                          <td className="py-2 px-2 text-right">{new Intl.NumberFormat('id-ID').format(det.months.sep||0)}</td>
+                          <td className="py-2 px-2 text-right font-bold bg-slate-50">{new Intl.NumberFormat('id-ID').format(q3)}</td>
+                          <td className="py-2 px-2 text-right">{new Intl.NumberFormat('id-ID').format(det.months.oct||0)}</td>
+                          <td className="py-2 px-2 text-right">{new Intl.NumberFormat('id-ID').format(det.months.nov||0)}</td>
+                          <td className="py-2 px-2 text-right">{new Intl.NumberFormat('id-ID').format(det.months.dec||0)}</td>
+                          <td className="py-2 px-2 text-right font-bold bg-slate-50">{new Intl.NumberFormat('id-ID').format(q4)}</td>
+                          <td className="py-2 px-3 text-right font-bold text-bni-teal bg-teal-50/40">{new Intl.NumberFormat('id-ID').format(det.totalRealisasi || 0)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {modalInfo.show && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fadeIn">
+              <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden">
+                <div className={`px-6 py-4 text-white font-extrabold flex justify-between items-center ${modalInfo.status === 'Dropped' ? 'bg-rose-700' : 'bg-bni-orange'}`}>
+                  <span>{modalInfo.status === 'Dropped' ? 'Keterangan Project Dropped' : 'Berkas Justifikasi Perubahan'}</span>
+                  <button onClick={() => setModalInfo({...modalInfo, show: false})} className="text-white text-lg font-bold">&times;</button>
+                </div>
+                <div className="p-6 space-y-4 text-xs text-slate-700">
+                  <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
+                    <strong>No. Project:</strong> {modalInfo.projectNum}<br/>
+                    <strong>Nama Project:</strong> {modalInfo.projectName}
+                  </div>
+                  {modalInfo.status === 'Dropped' ? (
+                    <div>
+                      <span className="font-bold text-rose-700 block mb-1">Alasan Dropped:</span>
+                      <p className="bg-rose-50 p-3 rounded-xl border border-rose-200 italic">"{modalInfo.payload || 'Tidak ada alasan.'}"</p>
+                    </div>
+                  ) : (
+                    <div>
+                      <span className="font-bold text-bni-orange block mb-1">Tautan Berkas Pendukung:</span>
+                      {modalInfo.payload && (modalInfo.payload.startsWith('http://') || modalInfo.payload.startsWith('https://')) ? (
+                        <a href={modalInfo.payload} target="_blank" rel="noreferrer" className="block w-full text-center bg-bni-orange text-white font-bold p-3 rounded-xl shadow-md hover:bg-bni-orange-dark transition-all">📁 Buka Link Berkas / Surat</a>
+                      ) : (
+                        <p className="italic text-slate-400 bg-slate-50 p-3 rounded-xl text-center">Tidak ada tautan berkas valid.</p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    };
+
+    // KOMPONEN UTAMA APP
     function App() {
       const [rawData, setRawData] = useState([]);
       const [detailNonOtomasiData, setDetailNonOtomasiData] = useState([]);
@@ -1561,10 +1783,21 @@
       const [tableStatusEnpFilter, setTableStatusEnpFilter] = useState('ALL');
       const [sortConfig, setSortConfig] = useState({ key: null, direction: 'asc' });
 
+      // -- STATE FILTER MULTI-PILIHAN UNTUK KATEGORI PROYEK & STATUS EFS --
+      const [tableKatProjectFilter, setTableKatProjectFilter] = useState([]); // Array multi-pilihan
+      const [tableStatusEfsFilter, setTableStatusEfsFilter] = useState([]);   // Array multi-pilihan
+
       const [topSearchTerm, setTopSearchTerm] = useState('');
       const [bottomSearchTerm, setBottomSearchTerm] = useState('');
       
-      const [activeTab, setActiveTab] = useState('overview'); 
+      const [activeTab, setActiveTab] = useState(() => {
+        return localStorage.getItem('bni_capex_active_tab') || 'overview';
+      }); 
+
+      useEffect(() => {
+        localStorage.setItem('bni_capex_active_tab', activeTab);
+      }, [activeTab]); 
+
       const [projectsMenuOpen, setProjectsMenuOpen] = useState(true);
 
       const [selectedProjectForModal, setSelectedProjectForModal] = useState(null);
@@ -1585,7 +1818,7 @@
 
       useEffect(() => {
         setCurrentPage(1);
-      }, [selectedGroup, selectedWilayah, selectedUnit, activeTab, itemsPerPage, tableSearchTerm, tableWilayahFilter, tableKategoriFilter, tableStatusProjFilter, tableStatusEnpFilter, sortConfig]);
+      }, [selectedGroup, selectedWilayah, selectedUnit, activeTab, itemsPerPage, tableSearchTerm, tableWilayahFilter, tableKategoriFilter, tableStatusProjFilter, tableStatusEnpFilter, tableKatProjectFilter, tableStatusEfsFilter, sortConfig]);
 
       const loadData = () => {
         setLoading(true);
@@ -1618,6 +1851,17 @@
             });
         }
       };
+
+		// SUMBER DATA UTAMA (Overview difilter hanya Active, Draft, In Process)
+      const activeSourceData = useMemo(() => {
+        if (activeTab === 'overview') {
+          return rawData.filter(item => {
+            const sEfs = String(item.statusEfs || 'Active').trim().toLowerCase();
+            return sEfs === 'active' || sEfs === 'draft' || sEfs === 'in process';
+          });
+        }
+        return rawData;
+      }, [rawData, activeTab]);
 
       const handleUpdateDatabaseFromUpload = (uploadItems, monthKey) => {
         setRawData(prevData => {
@@ -1758,10 +2002,7 @@
         }
       };
 
-      const activeSourceData = useMemo(() => {
-        return rawData;
-      }, [rawData]);
-
+      
       const wilayahList = useMemo(() => {
         const source = selectedGroup === 'ALL' 
           ? activeSourceData 
@@ -1791,18 +2032,37 @@
         return ["Bangunan Gedung", "Tanah", "Perabotan Otomasi", "Perabotan Non Otomasi", "Kendaraan"];
       }, []);
 
+      // -- DAFTAR DINAMIS PILIHAN KATEGORI PROJECT & STATUS EFS DARI DATA --
+      const availableKatProjects = useMemo(() => {
+        const s = new Set();
+        rawData.forEach(item => {
+          if (item.kategoriProject) s.add(String(item.kategoriProject).trim());
+        });
+        return Array.from(s).sort();
+      }, [rawData]);
+
+      const availableStatusEfs = useMemo(() => {
+        const s = new Set();
+        rawData.forEach(item => {
+          let st = item.statusEfs ? String(item.statusEfs).trim() : 'Active';
+          if (st.toLowerCase() === 'actived') st = 'Active';
+          s.add(st);
+        });
+        return Array.from(s).sort();
+      }, [rawData]);
+
       const statusEnpList = useMemo(() => {
         const setEnp = new Set(rawData.map(i => i.statusEnp).filter(Boolean));
         return Array.from(setEnp).sort();
       }, [rawData]);
 
- const filteredData = useMemo(() => {
+      const filteredData = useMemo(() => {
         return activeSourceData.filter(item => {
           const matchGroup = selectedGroup === 'ALL' || item.typeGroup === selectedGroup;
           const matchWilayah = selectedWilayah === 'ALL' || item.wilayah === selectedWilayah;
           
           let matchKategori = true;
-          if (activeTab !== 'overview' && activeTab !== 'historical' && activeTab !== 'upload') {
+          if (activeTab !== 'overview' && activeTab !== 'historical' && activeTab !== 'upload' && activeTab !== 'prognosa') {
             let cat = (item.kategori || '').toLowerCase();
             if (activeTab === 'Bangunan Gedung') {
               matchKategori = cat.includes('bangunan') || cat.includes('gedung');
@@ -1811,7 +2071,6 @@
             } else if (activeTab === 'Perabotan Otomasi') {
               matchKategori = cat.includes('otomasi') && !cat.includes('non');
             } else if (activeTab === 'Perabotan Non Otomasi') {
-              // PERBAIKAN: Perketat filter agar hanya mencakup kategori perabotan non otomasi secara presisi
               matchKategori = cat.includes('perabotan non') || cat === 'perabotan non otomasi' || cat.includes('non-otomasi');
             } else if (activeTab === 'Kendaraan') {
               matchKategori = cat.includes('kendaraan') || cat.includes('mobil') || cat.includes('motor') || cat.includes('dinas');
@@ -1879,6 +2138,8 @@
           const finalTotalReal = getCumulativeRealisasiValue(row, reportMonth);
 
           const pct = aloEfs > 0 ? (finalTotalReal / aloEfs) * 100 : 0;
+          let rawSe = row.statusEfs ? String(row.statusEfs).trim() : 'Active';
+          if (rawSe.toLowerCase() === 'actived') rawSe = 'Active';
 
           return {
             ...row,
@@ -1888,6 +2149,7 @@
             alokasiEfs: aloEfs,
             totalReal: finalTotalReal,
             pctRealisasi: pct,
+            statusEfs: rawSe,
             linkDokumenEnp: row.linkDokumenEnp || "",
             catatanPembatalan: row.catatanPembatalan || ""
           };
@@ -1983,7 +2245,6 @@
           let cat = (row.kategori || '').toLowerCase().trim();
           let matchedCat = null;
 
-          // Letakkan Kendaraan di paling atas agar tidak tersangkut filter 'non'
           if (cat.includes('kendaraan') || cat.includes('mobil') || cat.includes('motor')) matchedCat = "Kendaraan";
           else if (cat.includes('bangunan') || cat.includes('gedung')) matchedCat = "Bangunan Gedung";
           else if (cat.includes('tanah')) matchedCat = "Tanah";
@@ -2072,6 +2333,18 @@
             if (tableKategoriFilter === 'Kendaraan' && !cat.includes('kendaraan')) return false;
           }
 
+          // -- FILTER KATEGORI PROJECT MULTI-PILIHAN --
+          if (tableKatProjectFilter.length > 0) {
+            const rowKat = String(row.kategoriProject || '').trim();
+            if (!tableKatProjectFilter.includes(rowKat)) return false;
+          }
+
+          // -- FILTER STATUS EFS MULTI-PILIHAN --
+          if (tableStatusEfsFilter.length > 0) {
+            const rowStEfs = String(row.statusEfs || 'Active').trim();
+            if (!tableStatusEfsFilter.includes(rowStEfs)) return false;
+          }
+
           if (tableStatusProjFilter !== 'ALL') {
             const stProj = (row.statusProject || '').toUpperCase();
             if (tableStatusProjFilter === 'AKTIF' && (stProj === 'NON AKTIF' || stProj === 'DROPPED')) return false;
@@ -2128,7 +2401,7 @@
         }
 
         return data;
-      }, [mappedProjectsData, tableSearchTerm, tableWilayahFilter, tableKategoriFilter, tableStatusProjFilter, tableStatusEnpFilter, sortConfig]);
+      }, [mappedProjectsData, tableSearchTerm, tableWilayahFilter, tableKategoriFilter, tableStatusProjFilter, tableStatusEnpFilter, tableKatProjectFilter, tableStatusEfsFilter, sortConfig]);
 
       const resetTableFilters = () => {
         setTableSearchTerm('');
@@ -2136,6 +2409,8 @@
         setTableKategoriFilter('ALL');
         setTableStatusProjFilter('ALL');
         setTableStatusEnpFilter('ALL');
+        setTableKatProjectFilter([]);
+        setTableStatusEfsFilter([]);
         setSortConfig({ key: null, direction: 'asc' });
       };
 
@@ -2298,7 +2573,7 @@
                       <button 
                         onClick={() => setProjectsMenuOpen(!projectsMenuOpen)}
                         className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-all ${
-                          (activeTab !== 'overview' && activeTab !== 'historical' && activeTab !== 'upload') 
+                          (activeTab !== 'overview' && activeTab !== 'historical' && activeTab !== 'upload' && activeTab !== 'prognosa') 
                             ? 'bg-bni-teal/10 text-bni-teal font-bold' 
                             : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800'
                         }`}
@@ -2329,6 +2604,18 @@
                         </div>
                       )}
                     </div>
+
+                    <button 
+                      onClick={() => setActiveTab('prognosa')}
+                      className={`w-full flex items-center space-x-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all mt-1 ${
+                        activeTab === 'prognosa' 
+                          ? 'bg-bni-teal text-white shadow-sm' 
+                          : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800'
+                      }`}
+                    >
+                      <i data-lucide="pie-chart" className="w-4 h-4"></i>
+                      <span>Prognosa</span>
+                    </button>
                   </nav>
                 </div>
               </div>
@@ -2415,18 +2702,18 @@
                     <span>General</span>
                     <i data-lucide="chevron-right" className="w-3 h-3"></i>
                     <span className="text-bni-teal font-bold capitalize">
-                      {activeTab === 'overview' ? 'Overview' : activeTab === 'historical' ? 'Historical Analytics' : activeTab === 'upload' ? 'Upload Laporan Bulanan' : `Projects / ${activeTab}`}
+                      {activeTab === 'overview' ? 'Overview' : activeTab === 'historical' ? 'Historical Analytics' : activeTab === 'upload' ? 'Upload Laporan Bulanan' : activeTab === 'prognosa' ? 'Prognosa' : `Projects / ${activeTab}`}
                     </span>
                   </div>
                   <h3 className="text-lg font-bold text-slate-800">
-                    {activeTab === 'overview' ? 'Dashboard Overview' : activeTab === 'historical' ? 'Historical & Variance Analytics' : activeTab === 'upload' ? 'Upload Laporan Bulan Terbaru' : `Detail Anggaran: ${activeTab}`}
+                    {activeTab === 'overview' ? 'Dashboard Overview' : activeTab === 'historical' ? 'Historical & Variance Analytics' : activeTab === 'upload' ? 'Upload Laporan Bulan Terbaru' : activeTab === 'prognosa' ? 'Summary Executive Hasil Konfirmasi (Prognosa)' : `Detail Anggaran: ${activeTab}`}
                   </h3>
                   <p className="text-xs text-slate-400">
-                    {activeTab === 'overview' ? 'Track your investment budget and achieve financial goals' : activeTab === 'historical' ? 'Analisis perubahan alokasi EFS dan realisasi antar bulan' : activeTab === 'upload' ? 'Sistem akan mendeteksi Project Number baru secara otomatis' : `Monitoring khusus mata anggaran ${activeTab}`}
+                    {activeTab === 'overview' ? 'Track your investment budget and achieve financial goals' : activeTab === 'historical' ? 'Analisis perubahan alokasi EFS dan realisasi antar bulan' : activeTab === 'upload' ? 'Sistem akan mendeteksi Project Number baru secara otomatis' : activeTab === 'prognosa' ? 'Laporan ringkasan konsolidasi realisasi anggaran' : `Monitoring khusus mata anggaran ${activeTab}`}
                   </p>
                 </div>
 
-                {activeTab !== 'historical' && activeTab !== 'upload' && (
+                {activeTab !== 'historical' && activeTab !== 'upload' && activeTab !== 'prognosa' && (
                   <div className="flex items-center bg-white border border-slate-200 shadow-sm rounded-xl px-3 py-1.5 space-x-2">
                     <i data-lucide="calendar" className="w-4 h-4 text-bni-teal"></i>
                     <span className="text-xs font-extrabold text-slate-600">Bulan Laporan:</span>
@@ -2443,6 +2730,7 @@
                 )}
               </div>
 
+              {activeTab === 'prognosa' && <PrognosaView />}
               {activeTab === 'upload' && (
                 <UploadMonthlyReportView 
                   existingProjects={rawData} 
@@ -2457,7 +2745,7 @@
                 <HistoricalAnalysisView data={rawData} />
               )}
 
-              {activeTab !== 'historical' && activeTab !== 'upload' && (
+              {activeTab !== 'historical' && activeTab !== 'upload' && activeTab !== 'prognosa' && (
                 <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm space-y-3">
                   <div className="flex items-center justify-between border-b pb-2 border-slate-100">
                     <h4 className="font-extrabold text-slate-800 text-sm flex items-center space-x-2">
@@ -2606,7 +2894,6 @@
                     />
                   </div>
 
-                  {/* --- 1 TABEL HEATMAP KOMPREHENSIF (MENYELURUH) --- */}
                   <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm space-y-4">
                     <div className="flex items-center justify-between border-b pb-2 border-slate-100">
                       <h4 className="font-extrabold text-slate-800 text-sm flex items-center space-x-2">
@@ -2787,108 +3074,218 @@
                 </>
               )}
 
-              {activeTab !== 'overview' && activeTab !== 'historical' && activeTab !== 'upload' && (
-                <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm flex flex-col justify-between overflow-hidden max-h-[650px]">
-                  <div className="p-4 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <h4 className="font-bold text-slate-800 text-sm">
-                        Daftar Project: {activeTab}
-                      </h4>
-                      <p className="text-[11px] text-slate-400">Klik header tabel untuk mengurutkan (sort) data. Hover pada nilai untuk melihat rupiah utuh.</p>
+              {activeTab !== 'overview' && activeTab !== 'historical' && activeTab !== 'upload' && activeTab !== 'prognosa' && (
+                <div className="space-y-4">
+                  
+                  {/* 1. SUMMARY BOX KHUSUS HALAMAN RINCIAN PROJECT */}
+                  {(() => {
+                    let sumAlo = 0;
+                    let sumReal = 0;
+                    let countProj = tableRows.length;
+                    let katCounts = {};
+                    let efsCounts = {};
+
+                    tableRows.forEach(r => {
+                      sumAlo += Number(r.aloEfs) || 0;
+                      sumReal += Number(r.totalReal) || 0;
+
+                      let kp = String(r.kategoriProject || 'Lainnya').trim();
+                      katCounts[kp] = (katCounts[kp] || 0) + 1;
+
+                      let se = String(r.statusEfs || 'Active').trim();
+                      efsCounts[se] = (efsCounts[se] || 0) + 1;
+                    });
+
+                    const overallPct = sumAlo > 0 ? ((sumReal / sumAlo) * 100).toFixed(2) : '0.00';
+
+                    return (
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+                        <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm">
+                          <span className="text-[10px] font-bold text-slate-400 uppercase block">Total Alokasi EFS</span>
+                          <h4 className="text-lg font-black text-slate-800 mt-1">{formatCompactIDR(sumAlo)}</h4>
+                          <span className="text-[10px] text-slate-400">{formatIDR(sumAlo)}</span>
+                        </div>
+
+                        <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm">
+                          <span className="text-[10px] font-bold text-slate-400 uppercase block">Total Realisasi ({reportMonth})</span>
+                          <h4 className="text-lg font-black text-bni-orange mt-1">{formatCompactIDR(sumReal)}</h4>
+                          <span className="text-[10px] text-slate-400">Penyerapan Kumulatif</span>
+                        </div>
+
+                        <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm">
+                          <span className="text-[10px] font-bold text-slate-400 uppercase block">% Realisasi</span>
+                          <h4 className="text-lg font-black text-bni-teal mt-1">{overallPct}%</h4>
+                          <span className="text-[10px] text-slate-400">Target Pencapaian</span>
+                        </div>
+
+                        <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm">
+                          <span className="text-[10px] font-bold text-slate-400 uppercase block">Total Project & Kategori</span>
+                          <h4 className="text-base font-black text-slate-800 mt-1">{countProj} Proyek</h4>
+                          <div className="text-[10px] text-slate-500 font-semibold mt-0.5 truncate">
+                            {Object.entries(katCounts).map(([k, v]) => `${k}: ${v}`).join(' | ')}
+                          </div>
+                        </div>
+
+                        <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm">
+                          <span className="text-[10px] font-bold text-slate-400 uppercase block">Total Status EFS</span>
+                          <h4 className="text-base font-black text-slate-800 mt-1">
+                            {Object.values(efsCounts).reduce((a, b) => a + b, 0)} Item
+                          </h4>
+                          <div className="text-[10px] text-slate-500 font-semibold mt-0.5 truncate">
+                            {Object.entries(efsCounts).map(([k, v]) => `${k}: ${v}`).join(' | ')}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* KONTTAINER UTAMA TABEL */}
+                  <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm flex flex-col justify-between overflow-hidden max-h-[650px]">
+                    <div className="p-4 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <h4 className="font-bold text-slate-800 text-sm">
+                          Daftar Project: {activeTab}
+                        </h4>
+                        <p className="text-[11px] text-slate-400">Klik header tabel untuk mengurutkan (sort) data. Hover pada nilai untuk melihat rupiah utuh.</p>
+                      </div>
+                      
+                      <div className="flex items-center space-x-3">
+                        <span className="text-xs font-bold text-bni-teal bg-bni-teal-subtle px-2.5 py-1 rounded-lg">
+                          {tableRows.length} Items
+                        </span>
+                      </div>
                     </div>
-                    
-                    <div className="flex items-center space-x-3">
-                      <span className="text-xs font-bold text-bni-teal bg-bni-teal-subtle px-2.5 py-1 rounded-lg">
-                        {tableRows.length} Items
-                      </span>
-                    </div>
-                  </div>
 
-                  <div className="p-3 bg-slate-50/70 border-b border-slate-100 flex flex-wrap items-center justify-between gap-2.5">
-                    <div className="flex flex-wrap items-center gap-2 flex-1 min-w-[280px]">
-                      <div className="relative min-w-[180px] flex-1">
-                        <i data-lucide="search" className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5"></i>
-                        <input 
-                          type="text" 
-                          placeholder="Cari Nama / Project Number..." 
-                          value={tableSearchTerm}
-                          onChange={(e) => setTableSearchTerm(e.target.value)}
-                          className="w-full pl-8 pr-3 py-1 bg-white border border-slate-200 rounded-lg text-xs font-medium focus:outline-none focus:border-bni-teal transition-all shadow-sm"
-                        />
+                    {/* BAR FILTER MULTI-SELECT (Kategori Project & Status EFS) */}
+                    <div className="p-3 bg-slate-50/70 border-b border-slate-100 flex flex-wrap items-center justify-between gap-2.5">
+                      <div className="flex flex-wrap items-center gap-2 flex-1 min-w-[280px]">
+                        <div className="relative min-w-[160px] flex-1">
+                          <i data-lucide="search" className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5"></i>
+                          <input 
+                            type="text" 
+                            placeholder="Cari Nama / Project Number..." 
+                            value={tableSearchTerm}
+                            onChange={(e) => setTableSearchTerm(e.target.value)}
+                            className="w-full pl-8 pr-3 py-1 bg-white border border-slate-200 rounded-lg text-xs font-medium focus:outline-none focus:border-bni-teal transition-all shadow-sm"
+                          />
+                        </div>
+
+                        <div className="flex items-center bg-white border border-slate-200 rounded-lg px-2 py-1 shadow-sm">
+                          <span className="text-[10px] font-bold text-slate-400 mr-1">Wilayah:</span>
+                          <select 
+                            value={tableWilayahFilter} 
+                            onChange={(e) => setTableWilayahFilter(e.target.value)}
+                            className="bg-transparent text-slate-700 font-bold text-xs border-none focus:outline-none cursor-pointer max-w-[100px] truncate"
+                          >
+                            <option value="ALL">Semua</option>
+                            {wilayahList.map(w => (
+                              <option key={w} value={w}>{w}</option>
+                            ))}
+                          </select>
+                        </div>
+
+                        {/* FILTER KATEGORI PROJECT (MULTI-SELECT) */}
+                        <div className="flex items-center bg-white border border-slate-200 rounded-lg px-2 py-1 shadow-sm space-x-1">
+                          <span className="text-[10px] font-bold text-slate-400">Kat. Proyek:</span>
+                          <div className="flex items-center space-x-1.5 overflow-x-auto max-w-xs py-0.5">
+                            {availableKatProjects.map(kp => {
+                              const isSelected = tableKatProjectFilter.includes(kp);
+                              return (
+                                <button
+                                  key={kp}
+                                  type="button"
+                                  onClick={() => {
+                                    setTableKatProjectFilter(prev => 
+                                      isSelected ? prev.filter(x => x !== kp) : [...prev, kp]
+                                    );
+                                  }}
+                                  className={`px-2 py-0.5 rounded text-[10px] font-bold transition-all border ${
+                                    isSelected 
+                                      ? 'bg-bni-teal text-white border-bni-teal shadow-xs' 
+                                      : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'
+                                  }`}
+                                >
+                                  {kp}
+                                </button>
+                              );
+                            })}
+                            {tableKatProjectFilter.length > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => setTableKatProjectFilter([])}
+                                className="text-[9px] font-extrabold text-rose-600 hover:underline px-1"
+                              >
+                                [Semua]
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* FILTER STATUS EFS (MULTI-PILIHAN DINAMIS) */}
+						<div className="flex items-center bg-white border border-slate-200 rounded-lg px-2 py-1 shadow-sm space-x-1">
+						  <span className="text-[10px] font-bold text-slate-400">Status EFS:</span>
+						  <div className="flex items-center space-x-1.5 overflow-x-auto max-w-xs py-0.5">
+							{availableStatusEfs.map(se => {
+							  const isSelected = tableStatusEfsFilter.includes(se);
+							  return (
+								<button
+								  key={se}
+								  type="button"
+								  onClick={() => {
+									setTableStatusEfsFilter(prev => 
+									  isSelected ? prev.filter(x => x !== se) : [...prev, se]
+									);
+								  }}
+								  className={`px-2 py-0.5 rounded text-[10px] font-bold transition-all border ${
+									isSelected 
+									  ? 'bg-bni-orange text-white border-bni-orange shadow-xs' 
+									  : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'
+								  }`}
+								>
+								  {se}
+								</button>
+							  );
+							})}
+							{tableStatusEfsFilter.length > 0 && (
+							  <button
+								type="button"
+								onClick={() => setTableStatusEfsFilter([])}
+								className="text-[9px] font-extrabold text-rose-600 hover:underline px-1"
+							  >
+								[Semua]
+							  </button>
+							)}
+						  </div>
+						</div>
+
+                        {(tableSearchTerm || tableWilayahFilter !== 'ALL' || tableKatProjectFilter.length > 0 || tableStatusEfsFilter.length > 0 || tableStatusProjFilter !== 'ALL' || tableStatusEnpFilter !== 'ALL' || sortConfig.key !== null) && (
+                          <button 
+                            onClick={resetTableFilters}
+                            className="text-[10px] font-bold text-rose-600 hover:text-rose-800 bg-rose-50 hover:bg-rose-100 px-2.5 py-1 rounded-lg transition-all flex items-center space-x-1"
+                          >
+                            <i data-lucide="rotate-ccw" className="w-3 h-3"></i>
+                            <span>Reset</span>
+                          </button>
+                        )}
                       </div>
 
-                      <div className="flex items-center bg-white border border-slate-200 rounded-lg px-2 py-1 shadow-sm">
-                        <span className="text-[10px] font-bold text-slate-400 mr-1">Wilayah:</span>
-                        <select 
-                          value={tableWilayahFilter} 
-                          onChange={(e) => setTableWilayahFilter(e.target.value)}
-                          className="bg-transparent text-slate-700 font-bold text-xs border-none focus:outline-none cursor-pointer max-w-[110px] truncate"
-                        >
-                          <option value="ALL">Semua</option>
-                          {wilayahList.map(w => (
-                            <option key={w} value={w}>{w}</option>
-                          ))}
-                        </select>
-                      </div>
-
-                      <div className="flex items-center bg-white border border-slate-200 rounded-lg px-2 py-1 shadow-sm">
-                        <span className="text-[10px] font-bold text-slate-400 mr-1">Proyek:</span>
-                        <select 
-                          value={tableStatusProjFilter} 
-                          onChange={(e) => setTableStatusProjFilter(e.target.value)}
-                          className="bg-transparent text-slate-700 font-bold text-xs border-none focus:outline-none cursor-pointer"
-                        >
-                          <option value="ALL">Semua</option>
-                          <option value="AKTIF">AKTIF</option>
-                          <option value="NON_AKTIF">NON AKTIF</option>
-                        </select>
-                      </div>
-
-                      <div className="flex items-center bg-white border border-slate-200 rounded-lg px-2 py-1 shadow-sm">
-                        <span className="text-[10px] font-bold text-slate-400 mr-1">ENP:</span>
-                        <select 
-                          value={tableStatusEnpFilter} 
-                          onChange={(e) => setTableStatusEnpFilter(e.target.value)}
-                          className="bg-transparent text-slate-700 font-bold text-xs border-none focus:outline-none cursor-pointer"
-                        >
-                          <option value="ALL">Semua</option>
-                          {statusEnpList.map(st => (
-                            <option key={st} value={st}>{st}</option>
-                          ))}
-                        </select>
-                      </div>
-
-                      {(tableSearchTerm || tableWilayahFilter !== 'ALL' || tableKategoriFilter !== 'ALL' || tableStatusProjFilter !== 'ALL' || tableStatusEnpFilter !== 'ALL' || sortConfig.key !== null) && (
+                      <div className="flex items-center space-x-2">
                         <button 
-                          onClick={resetTableFilters}
-                          className="text-[10px] font-bold text-rose-600 hover:text-rose-800 bg-rose-50 hover:bg-rose-100 px-2.5 py-1 rounded-lg transition-all flex items-center space-x-1"
+                          onClick={exportProjectsToExcel}
+                          className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1 rounded-lg text-xs font-bold transition-all flex items-center space-x-1 shadow-sm"
                         >
-                          <i data-lucide="rotate-ccw" className="w-3 h-3"></i>
-                          <span>Reset</span>
+                          <i data-lucide="file-spreadsheet" className="w-3.5 h-3.5"></i>
+                          <span>Excel</span>
                         </button>
-                      )}
+                        <button 
+                          onClick={exportProjectsToPDF}
+                          className="bg-rose-600 hover:bg-rose-700 text-white px-3 py-1 rounded-lg text-xs font-bold transition-all flex items-center space-x-1 shadow-sm"
+                        >
+                          <i data-lucide="file-text" className="w-3.5 h-3.5"></i>
+                          <span>PDF</span>
+                        </button>
+                      </div>
                     </div>
-
-                    <div className="flex items-center space-x-2">
-                      <button 
-                        onClick={exportProjectsToExcel}
-                        className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1 rounded-lg text-xs font-bold transition-all flex items-center space-x-1 shadow-sm"
-                        title="Export Tabel ke Excel"
-                      >
-                        <i data-lucide="file-spreadsheet" className="w-3.5 h-3.5"></i>
-                        <span>Export Excel</span>
-                      </button>
-
-                      <button 
-                        onClick={exportProjectsToPDF}
-                        className="bg-rose-600 hover:bg-rose-700 text-white px-3 py-1 rounded-lg text-xs font-bold transition-all flex items-center space-x-1 shadow-sm"
-                        title="Export Tabel ke PDF"
-                      >
-                        <i data-lucide="file-text" className="w-3.5 h-3.5"></i>
-                        <span>Export PDF</span>
-                      </button>
-                    </div>
-                  </div>
 
                   <div className="overflow-x-auto overflow-y-auto custom-scrollbar flex-1">
                     <table className="w-full text-left text-xs text-slate-600">
@@ -2927,18 +3324,6 @@
                               {renderSortIcon('enpAwal')}
                             </div>
                           </th>
-                          <th onClick={() => handleSort('alokasiAwal')} className="py-2.5 px-2.5 text-right cursor-pointer hover:bg-slate-100 transition-colors">
-                            <div className="flex items-center justify-end space-x-1">
-                              <span>Alokasi Awal</span>
-                              {renderSortIcon('alokasiAwal')}
-                            </div>
-                          </th>
-                          <th onClick={() => handleSort('alokasiRevisiRbb')} className="py-2.5 px-2.5 text-right cursor-pointer hover:bg-slate-100 transition-colors">
-                            <div className="flex items-center justify-end space-x-1">
-                              <span>Revisi RBB</span>
-                              {renderSortIcon('alokasiRevisiRbb')}
-                            </div>
-                          </th>
                           <th onClick={() => handleSort('alokasiEfs')} className="py-2.5 px-2.5 text-right cursor-pointer hover:bg-slate-100 transition-colors">
                             <div className="flex items-center justify-end space-x-1">
                               <span>Alokasi EFS ({reportMonth})</span>
@@ -2963,6 +3348,15 @@
                               {renderSortIcon('statusProject')}
                             </div>
                           </th>
+						  
+						  <th onClick={() => handleSort('statusEfs')} className="py-2.5 px-3 text-center cursor-pointer hover:bg-slate-100 transition-colors">
+                            <div className="flex items-center justify-center space-x-1">
+                              <span>Status EFS</span>
+                              {renderSortIcon('statusEfs')}
+                            </div>
+                          </th>
+						  
+						  
                           <th className="py-2.5 px-2 text-center">Aksi</th>
                         </tr>
                       </thead>
@@ -3026,27 +3420,19 @@
                                 </td>
 
                                 {activeTab === 'Perabotan Non Otomasi' && (
-                                  <td className="py-2 px-2 text-center font-bold text-slate-700 whitespace-nowrap">
-                                    <span className="bg-slate-100 px-1.5 py-0.5 rounded text-[11px]">
-                                      {new Intl.NumberFormat('id-ID').format(row.qty || 0)}
-                                    </span>
-                                  </td>
-                                )}
+								  <td className="py-2 px-2 text-center font-bold text-slate-700 whitespace-nowrap">
+									<span className="bg-slate-100 px-1.5 py-0.5 rounded text-[11px]">
+									  {new Intl.NumberFormat('id-ID').format(row.qty || 0)}
+									</span>
+								  </td>
+								)}
 
-<td className="py-2 px-2.5 text-center font-medium text-slate-600 whitespace-nowrap text-[11px]">
-  {row.kategoriProject || '-'}
-</td>
+								<td className="py-2 px-2.5 text-center font-medium text-slate-600 whitespace-nowrap text-[11px]">
+								  {row.kategoriProject || '-'}
+								</td>
 
                                 <td className="py-2 px-2.5 text-right font-medium text-slate-600 whitespace-nowrap text-[11px]" title={formatIDR(row.enpAwal)}>
                                   {formatSlimIDR(row.enpAwal)}
-                                </td>
-
-                                <td className="py-2 px-2.5 text-right font-medium text-slate-700 whitespace-nowrap text-[11px]" title={formatIDR(row.alokasiAwal)}>
-                                  {formatSlimIDR(row.alokasiAwal)}
-                                </td>
-
-                                <td className="py-2 px-2.5 text-right font-medium text-amber-700 whitespace-nowrap text-[11px]" title={formatIDR(row.alokasiRevisiRbb)}>
-                                  {formatSlimIDR(row.alokasiRevisiRbb)}
                                 </td>
 
                                 <td className="py-2 px-2.5 text-right font-semibold text-blue-700 whitespace-nowrap text-[11px]" title={formatIDR(aloEfs)}>
@@ -3093,6 +3479,12 @@
                                   </div>
                                 </td>
 
+								<td className="py-2 px-3 text-center font-bold text-xs">
+								  <span className="px-2 py-0.5 rounded text-[10px] bg-teal-100 text-teal-800 border border-teal-200">
+									{row.statusEfs || 'Active'}
+								  </span>
+								</td>
+
                                 <td className="py-2 px-2 text-center whitespace-nowrap">
                                   <button
                                     onClick={() => handleOpenDetailModal(row)}
@@ -3110,6 +3502,8 @@
                       </tbody>
                     </table>
                   </div>
+              
+            </div>
 
                   {!loading && tableRows.length > 0 && (
                     <div className="p-3 border-t border-slate-100 bg-slate-50/50 flex flex-wrap items-center justify-between gap-3">
@@ -3306,6 +3700,13 @@
                           </div>
                         </div>
                       </div>
+
+						<div>
+						  <span className="text-slate-400 font-bold block text-[10px] uppercase">p. Status EFS</span>
+						  <span className="inline-block font-black text-xs px-2 py-0.5 rounded bg-teal-100 text-teal-800 mt-1">
+							{selectedProjectForModal.statusEfs || 'Active'}
+						  </span>
+						</div>
 
                       {isNonAktif && (
                         <div className="bg-rose-50 border border-rose-200 p-3.5 rounded-xl space-y-1">
