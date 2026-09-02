@@ -507,7 +507,6 @@
       );
     };
 
-    // KOMPONEN UPLOAD LAPORAN BARU (VERSI ORIGINAL)
     const UploadMonthlyReportView = ({ existingProjects, masterOutletDict, masterRekgDict, onUpdateDatabase, onUploadSuccess }) => {
       const [uploadMonth, setUploadMonth] = useState('Ags');
       const [parsedData, setParsedData] = useState([]);
@@ -587,6 +586,8 @@
                 let parsedStatusEfs = String(rawStatusEfs).trim();
                 if (parsedStatusEfs.toLowerCase() === 'actived') parsedStatusEfs = 'Active';
                 
+                let parsedMataAnggaran = '-';
+                let parsedKategori = 'Bangunan Gedung';
                 const parts = String(rawCoa).split('-');
                 if (parts.length >= 3) {
                   let target10 = parts[2].trim();
@@ -632,14 +633,14 @@
                   operatingUnit: parsedOpUnit,
                   mataAnggaran: parsedMataAnggaran,
                   kategori: parsedKategori,
-                  statusEfs: parsedStatusEfs, // Pastikan ada koma di sini
+                  statusEfs: parsedStatusEfs,
                   wilayahUnit: `${parsedWilayah} - ${parsedOpUnit}`,
                   alokasiEfs: valEfs,
                   realisasiBulan: valReal,
                   isNewProject: isNew,
                   dbRecord: dbRecord
-                }; // Kurung kurawal objek tertutup tanpa koma di akhir
-              }); // Kurung tutup untuk .map()
+                };
+              });
             
               setParsedData(processed);
             } catch (err) {
@@ -973,7 +974,6 @@
       );
     };
 
-    // KOMPONEN HISTORICAL ANALYSIS VIEW
 	const HistoricalAnalysisView = ({ data }) => {
       const [m1, setM1] = useState('Jun');
       const [m2, setM2] = useState('Jul');
@@ -984,12 +984,19 @@
       const canvasHistRef = useRef(null);
       const chartHistRef = useRef(null);
 
+      const filteredHistoricalData = useMemo(() => {
+        return data.filter(item => {
+          const sEfs = String(item.statusEfs || 'Active').trim().toLowerCase();
+          return sEfs === 'active' || sEfs === 'draft' || sEfs === 'in process';
+        });
+      }, [data]);
+
       const monthlySummary = useMemo(() => {
         return MONTHS.map((m) => {
           let efsTot = 0;
           let realTot = 0;
 
-          data.forEach(item => {
+          filteredHistoricalData.forEach(item => {
             efsTot += getEfsValue(item, m);
             realTot += getCumulativeRealisasiValue(item, m);
           });
@@ -997,7 +1004,7 @@
           const pct = efsTot > 0 ? (realTot / efsTot) * 100 : 0;
           return { month: m, alokasi: efsTot, realisasi: realTot, pct };
         });
-      }, [data]);
+      }, [filteredHistoricalData]);
 
       useEffect(() => {
         if (!canvasHistRef.current) return;
@@ -1083,7 +1090,7 @@
       };
 
       const varianceData = useMemo(() => {
-        let list = data.map(item => {
+        let list = filteredHistoricalData.map(item => {
           const efs1 = getEfsValue(item, m1);
           const efs2 = getEfsValue(item, m2);
           const diffEfs = efs2 - efs1;
@@ -1137,7 +1144,7 @@
         }
 
         return list;
-      }, [data, m1, m2, searchQuery, diffFilter, histSortConfig]);
+      }, [filteredHistoricalData, m1, m2, searchQuery, diffFilter, histSortConfig]);
 
       const varianceStats = useMemo(() => {
         let totEfs1 = 0, totEfs2 = 0, totReal1 = 0, totReal2 = 0;
@@ -1216,7 +1223,6 @@
 
       return (
         <div className="space-y-6 animate-fadeIn">
-          {/* Grafik Tren */}
           <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm space-y-3">
             <div className="flex items-center justify-between border-b pb-3 border-slate-100">
               <div>
@@ -1234,7 +1240,6 @@
             </div>
           </div>
 
-          {/* Bagian Tabel Komparasi */}
           <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm flex flex-col overflow-hidden max-h-[650px]">
             <div className="p-5 border-b border-slate-100 flex flex-wrap items-center justify-between gap-4 bg-slate-50/50">
               <div>
@@ -1245,7 +1250,6 @@
                 <p className="text-xs text-slate-400">Lakukan komparasi pergerakan alokasi & realisasi proyek antar dua bulan pilihan</p>
               </div>
 
-              {/* Selector Bulan A dan Bulan B */}
               <div className="flex items-center space-x-3 bg-white p-1.5 rounded-xl border border-slate-200 shadow-sm">
                 <div className="flex items-center space-x-1.5">
                   <span className="text-xs font-bold text-slate-500 pl-1">Bulan A:</span>
@@ -1273,7 +1277,6 @@
               </div>
             </div>
 
-            {/* 3 Cards Ringkasan Statistik */}
             <div className="p-5 grid grid-cols-1 md:grid-cols-3 gap-4 bg-slate-100/40 border-b border-slate-100">
               <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm">
                 <span className="text-[10px] font-bold text-slate-400 uppercase block">Total Alokasi EFS ({m1} vs {m2})</span>
@@ -1307,7 +1310,6 @@
               </div>
             </div>
 
-            {/* Bar Pencarian, Filter Perubahan, dan Tombol Export */}
             <div className="p-3 bg-white border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
               <div className="relative min-w-[220px]">
                 <i data-lucide="search" className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5"></i>
@@ -1369,7 +1371,6 @@
               </div>
             </div>
 
-            {/* Tabel Utama dengan Fitur Sort di Header */}
             <div className="overflow-x-auto overflow-y-auto custom-scrollbar flex-1">
               <table className="w-full text-left text-xs text-slate-600">
                 <thead className="bg-slate-50 text-slate-500 font-extrabold uppercase text-[9px] tracking-wider border-b border-slate-200 sticky top-0 z-10 select-none shadow-sm">
@@ -1498,7 +1499,6 @@
       );
     };
 
-    // KOMPONEN HALAMAN PROGNOSA
     const PrognosaView = () => {
       const [loading, setLoading] = useState(true);
       const [progData, setProgData] = useState([]);
@@ -1660,7 +1660,7 @@
                       <th rowSpan="2" className="py-2.5 px-3 border border-teal-800 text-right">Plafon ENP Usulan (Rp)</th>
                       <th rowSpan="2" className="py-2.5 px-3 border border-teal-800 text-center">Status ENP</th>
                       <th rowSpan="2" className="py-2.5 px-3 border border-teal-800 text-center">Status Project</th>
-                      <th rowSpan="2" className="py-2.5 px-3 border border-teal-800 text-right bg-[#FFF2EE] text-bni-orange">Prognosa 2026</th>
+                      <th rowSpan="2" className="py-2.5 px-3 border border-teal-800 text-right bg-[#FFF2EE] text-bni-orange">Usulan Alokasi RBB (Rp)</th>
                       <th colSpan="4" className="py-2 px-2 border border-teal-800 text-center">Triwulan I (Q1)</th>
                       <th colSpan="4" className="py-2 px-2 border border-teal-800 text-center">Triwulan II (Q2)</th>
                       <th colSpan="4" className="py-2 px-2 border border-teal-800 text-center">Triwulan III (Q3)</th>
@@ -1761,7 +1761,6 @@
       );
     };
 
-    // KOMPONEN UTAMA APP
     function App() {
       const [rawData, setRawData] = useState([]);
       const [detailNonOtomasiData, setDetailNonOtomasiData] = useState([]);
@@ -1783,9 +1782,8 @@
       const [tableStatusEnpFilter, setTableStatusEnpFilter] = useState('ALL');
       const [sortConfig, setSortConfig] = useState({ key: null, direction: 'asc' });
 
-      // -- STATE FILTER MULTI-PILIHAN UNTUK KATEGORI PROYEK & STATUS EFS --
-      const [tableKatProjectFilter, setTableKatProjectFilter] = useState([]); // Array multi-pilihan
-      const [tableStatusEfsFilter, setTableStatusEfsFilter] = useState([]);   // Array multi-pilihan
+      const [tableKatProjectFilter, setTableKatProjectFilter] = useState([]);
+      const [tableStatusEfsFilter, setTableStatusEfsFilter] = useState([]);
 
       const [topSearchTerm, setTopSearchTerm] = useState('');
       const [bottomSearchTerm, setBottomSearchTerm] = useState('');
@@ -1852,7 +1850,6 @@
         }
       };
 
-		// SUMBER DATA UTAMA (Overview difilter hanya Active, Draft, In Process)
       const activeSourceData = useMemo(() => {
         if (activeTab === 'overview') {
           return rawData.filter(item => {
@@ -2002,7 +1999,6 @@
         }
       };
 
-      
       const wilayahList = useMemo(() => {
         const source = selectedGroup === 'ALL' 
           ? activeSourceData 
@@ -2032,7 +2028,6 @@
         return ["Bangunan Gedung", "Tanah", "Perabotan Otomasi", "Perabotan Non Otomasi", "Kendaraan"];
       }, []);
 
-      // -- DAFTAR DINAMIS PILIHAN KATEGORI PROJECT & STATUS EFS DARI DATA --
       const availableKatProjects = useMemo(() => {
         const s = new Set();
         rawData.forEach(item => {
@@ -2233,6 +2228,7 @@
         };
       }, [rawData, reportMonth]);
 
+      // Summary Box per Mata Anggaran kini menggunakan filteredData agar ikut terfilter sesuai dropdown (Grup, Wilayah, Unit Kerja)
       const categorySummaryBoxes = useMemo(() => {
         const targetCats = ["Bangunan Gedung", "Tanah", "Perabotan Otomasi", "Perabotan Non Otomasi", "Kendaraan"];
         const summary = {};
@@ -2241,7 +2237,7 @@
           summary[c] = { alokasi: 0, realisasi: 0, totalProject: 0, aktif: 0, nonAktif: 0 };
         });
 
-        rawData.forEach(row => {
+        filteredData.forEach(row => {
           let cat = (row.kategori || '').toLowerCase().trim();
           let matchedCat = null;
 
@@ -2268,12 +2264,12 @@
         });
 
         return summary;
-      }, [rawData, reportMonth]);
+      }, [filteredData, reportMonth]);
 
       const mirrorChartData = useMemo(() => {
         const mapWilayah = {};
 
-        rawData.forEach(row => {
+        activeSourceData.forEach(row => {
           const w = row.wilayah || 'Lainnya';
           if (!mapWilayah[w]) mapWilayah[w] = { alokasi: 0, realisasi: 0, alokasiEfs: 0 };
 
@@ -2301,7 +2297,7 @@
           alokasi: listSorted.map(item => item.alokasi),
           pctRealisasi: listSorted.map(item => item.pctRealisasi)
         };
-      }, [rawData, reportMonth]);
+      }, [activeSourceData, reportMonth]);
 
       const handleSort = (key) => {
         let direction = 'asc';
@@ -2333,13 +2329,11 @@
             if (tableKategoriFilter === 'Kendaraan' && !cat.includes('kendaraan')) return false;
           }
 
-          // -- FILTER KATEGORI PROJECT MULTI-PILIHAN --
           if (tableKatProjectFilter.length > 0) {
             const rowKat = String(row.kategoriProject || '').trim();
             if (!tableKatProjectFilter.includes(rowKat)) return false;
           }
 
-          // -- FILTER STATUS EFS MULTI-PILIHAN --
           if (tableStatusEfsFilter.length > 0) {
             const rowStEfs = String(row.statusEfs || 'Active').trim();
             if (!tableStatusEfsFilter.includes(rowStEfs)) return false;
@@ -2416,35 +2410,33 @@
 
       const exportProjectsToExcel = () => {
         const rows = tableRows.map((row, index) => {
-          const base = {
+          return {
             "No": index + 1,
+            "Wilayah": row.wilayah || '-',
+            "Entitas": row.entitas || '-',
+            "Operating Unit": row.operatingUnit || '-',
+            "Mata Anggaran": row.kategori || '-',
+            "COA (No. Rekg)": row.coa || '-',
+            "Nama Rekening": row.namaRekening || '-',
             "Project Number": row.projectNumber || '-',
             "Nama Project": row.namaProject || '-',
-            "Kategori": row.kategori || '-',
-            "Wilayah": row.wilayah || '-',
-            "Operating Unit": row.operatingUnit || '-'
-          };
-
-          if (activeTab === 'Perabotan Non Otomasi') {
-            base["Qty"] = row.qty || 0;
-          }
-
-          return {
-            ...base,
+            "Status ENP": row.statusEnp || 'OK',
+            "Status Project": row.statusProject || 'AKTIF',
+            "Status EFS": row.statusEfs || 'Active',
             "ENP Awal": row.enpAwal || 0,
+            "Usul Perubahan ENP": row.usulPerubahanEnp !== null ? row.usulPerubahanEnp : 0,
             "Alokasi Awal": row.alokasiAwal || 0,
-            "Revisi RBB": row.alokasiRevisiRbb || 0,
+            "Alokasi Revisi RBB": row.alokasiRevisiRbb || 0,
             [`Alokasi EFS (${reportMonth})`]: row.aloEfs || 0,
             [`Realisasi Kumulatif (${reportMonth})`]: row.totalReal || 0,
-            "% Realisasi": row.pctRealisasi ? Number(row.pctRealisasi.toFixed(2)) : 0,
-            "Status": row.statusProject || 'AKTIF'
+            "% Realisasi": row.pctRealisasi ? Number(row.pctRealisasi.toFixed(2)) : 0
           };
         });
 
         const worksheet = XLSX.utils.json_to_sheet(rows);
         const workbook = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(workbook, worksheet, "Data_Projects");
-        XLSX.writeFile(workbook, `Report_Projects_${activeTab}_${reportMonth}.xlsx`);
+        XLSX.utils.book_append_sheet(workbook, worksheet, "Detail_Projects");
+        XLSX.writeFile(workbook, `Report_Detail_Projects_${activeTab}_${reportMonth}.xlsx`);
       };
 
       const exportProjectsToPDF = () => {
@@ -2452,33 +2444,39 @@
         const doc = new jsPDF('l', 'mm', 'a4');
 
         doc.setFontSize(14);
-        doc.text(`Laporan Daftar Proyek - ${activeTab} (${reportMonth})`, 14, 15);
+        doc.text(`Laporan Rincian Proyek - ${activeTab} (${reportMonth})`, 14, 15);
         doc.setFontSize(9);
         doc.text(`Tanggal Cetak: ${new Date().toLocaleDateString('id-ID')}`, 14, 21);
 
-        const tableColumn = ["No", "Project Number", "Nama Project", "Wilayah", "Alokasi Awal", `EFS (${reportMonth})`, `Realisasi Kum. (${reportMonth})`, "% Real", "Status"];
+        const tableColumn = [
+          "No", "Project Number", "Nama Project", "Wilayah / Unit", 
+          "ENP Awal", `EFS (${reportMonth})`, `Realisasi (${reportMonth})`, 
+          "% Real", "Status", "Status EFS"
+        ];
+        
         const tableDataRows = tableRows.map((row, index) => [
           index + 1,
           row.projectNumber || '-',
           row.namaProject || '-',
-          row.wilayah || '-',
-          formatCompactIDR(row.alokasiAwal),
+          `${row.wilayah} / ${row.operatingUnit || '-'}`,
+          formatCompactIDR(row.enpAwal),
           formatCompactIDR(row.aloEfs),
           formatCompactIDR(row.totalReal),
           `${(row.pctRealisasi || 0).toFixed(1)}%`,
-          row.statusProject || 'AKTIF'
+          row.statusProject || 'AKTIF',
+          row.statusEfs || 'Active'
         ]);
 
         doc.autoTable({
           head: [tableColumn],
           body: tableDataRows,
           startY: 25,
-          styles: { fontSize: 8, cellPadding: 2 },
+          styles: { fontSize: 7, cellPadding: 2 },
           headStyles: { fillColor: [0, 102, 102], textColor: 255, fontStyle: 'bold' },
           alternateRowStyles: { fillColor: [245, 247, 250] }
         });
 
-        doc.save(`Report_Projects_${activeTab}_${reportMonth}.pdf`);
+        doc.save(`Report_Detail_Projects_${activeTab}_${reportMonth}.pdf`);
       };
 
       const totalPages = Math.max(1, Math.ceil(tableRows.length / itemsPerPage));
@@ -2905,7 +2903,7 @@
                     <p className="text-xs text-slate-400">Sebaran komprehensif alokasi investasi (EFS), realisasi kumulatif, dan tingkat persentase penyerapan per unit wilayah dan kategori.</p>
 
                     <HeatmapMatrix 
-                      data={rawData} 
+                      data={activeSourceData} 
                       categories={kategoriList} 
                       wilayahs={wilayahList} 
                       reportMonth={reportMonth}
@@ -3077,7 +3075,6 @@
               {activeTab !== 'overview' && activeTab !== 'historical' && activeTab !== 'upload' && activeTab !== 'prognosa' && (
                 <div className="space-y-4">
                   
-                  {/* 1. SUMMARY BOX KHUSUS HALAMAN RINCIAN PROJECT */}
                   {(() => {
                     let sumAlo = 0;
                     let sumReal = 0;
@@ -3139,7 +3136,6 @@
                     );
                   })()}
 
-                  {/* KONTTAINER UTAMA TABEL */}
                   <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm flex flex-col justify-between overflow-hidden max-h-[650px]">
                     <div className="p-4 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
                       <div>
@@ -3156,7 +3152,6 @@
                       </div>
                     </div>
 
-                    {/* BAR FILTER MULTI-SELECT (Kategori Project & Status EFS) */}
                     <div className="p-3 bg-slate-50/70 border-b border-slate-100 flex flex-wrap items-center justify-between gap-2.5">
                       <div className="flex flex-wrap items-center gap-2 flex-1 min-w-[280px]">
                         <div className="relative min-w-[160px] flex-1">
@@ -3184,7 +3179,6 @@
                           </select>
                         </div>
 
-                        {/* FILTER KATEGORI PROJECT (MULTI-SELECT) */}
                         <div className="flex items-center bg-white border border-slate-200 rounded-lg px-2 py-1 shadow-sm space-x-1">
                           <span className="text-[10px] font-bold text-slate-400">Kat. Proyek:</span>
                           <div className="flex items-center space-x-1.5 overflow-x-auto max-w-xs py-0.5">
@@ -3221,7 +3215,6 @@
                           </div>
                         </div>
 
-                        {/* FILTER STATUS EFS (MULTI-PILIHAN DINAMIS) */}
 						<div className="flex items-center bg-white border border-slate-200 rounded-lg px-2 py-1 shadow-sm space-x-1">
 						  <span className="text-[10px] font-bold text-slate-400">Status EFS:</span>
 						  <div className="flex items-center space-x-1.5 overflow-x-auto max-w-xs py-0.5">
@@ -3355,7 +3348,6 @@
                               {renderSortIcon('statusEfs')}
                             </div>
                           </th>
-						  
 						  
                           <th className="py-2.5 px-2 text-center">Aksi</th>
                         </tr>
@@ -3879,7 +3871,7 @@
                           <span className="font-extrabold text-rose-400 uppercase tracking-wider text-[11px] flex items-center space-x-1">
                             <span>⚠️ Bottom 10 Need Attention ({tickerStats.currentMonthName}):</span>
                           </span>
-                          {bottom10ProjectsList.map((proj, idx) => (
+                          {bottom10ProjectsList.linkDokumenEnp && bottom10ProjectsList.map((proj, idx) => (
                             <span key={`bot-tick-${idx}`} className="inline-flex items-center space-x-1.5 bg-slate-900 border border-slate-800 px-2.5 py-1 rounded-lg">
                               <span className="text-slate-400 font-bold text-[10px]">#{idx + 1}</span>
                               <span className="font-bold text-slate-200 max-w-[130px] truncate" title={proj.namaProject}>
