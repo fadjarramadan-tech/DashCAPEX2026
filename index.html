@@ -1851,14 +1851,25 @@
       };
 
       const activeSourceData = useMemo(() => {
-        if (activeTab === 'overview') {
-          return rawData.filter(item => {
+        return rawData.map(item => {
+          const mKey = reportMonth.toLowerCase();
+          // Mengambil status EFS secara dinamis dari sheet STATUS berdasarkan Bulan Laporan yang dipilih
+          const dynamicStatusEfs = (item.statusEfsMonthly && item.statusEfsMonthly[mKey]) 
+            ? item.statusEfsMonthly[mKey] 
+            : (item.statusEfs || 'Active');
+
+          return {
+            ...item,
+            statusEfs: dynamicStatusEfs
+          };
+        }).filter(item => {
+          if (activeTab === 'overview') {
             const sEfs = String(item.statusEfs || 'Active').trim().toLowerCase();
             return sEfs === 'active' || sEfs === 'draft' || sEfs === 'in process';
-          });
-        }
-        return rawData;
-      }, [rawData, activeTab]);
+          }
+          return true;
+        });
+      }, [rawData, activeTab, reportMonth]);
 
       const handleUpdateDatabaseFromUpload = (uploadItems, monthKey) => {
         setRawData(prevData => {
@@ -3903,7 +3914,7 @@
             </div>
 
             <div className="bg-slate-900 px-4 py-2 border-t md:border-t-0 md:border-l border-slate-800 shrink-0 text-slate-400 text-[11px] font-medium text-center">
-              Copyright © 2026 by <b className="text-slate-200 font-extrabold">Fajar Ramadhan [P052099]</b> | Divisi NSD[cite: 1]
+              Copyright © 2026 by <b className="text-slate-200 font-extrabold">Fajar Ramadhan [P052099]</b> | Divisi NSD
             </div>
           </footer>
 
