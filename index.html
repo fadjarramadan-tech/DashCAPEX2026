@@ -146,8 +146,123 @@
       );
     };
 
-    const HeatmapMatrix = ({ data, categories, wilayahs, reportMonth = 'Des' }) => {
-      const { matrixData, colTotals, rowTotals, grandTotal } = useMemo(() => {
+const MonthlyTrendlineChart = ({ data, reportMonth }) => {
+      const canvasRef = useRef(null);
+      const chartRef = useRef(null);
+
+      const monthlyTrendData = useMemo(() => {
+        const alokasiArr = MONTHS.map(m => {
+          let sum = 0;
+          data.forEach(row => {
+            sum += getEfsValue(row, m);
+          });
+          return sum;
+        });
+
+        const realisasiArr = MONTHS.map(m => {
+          let sum = 0;
+          data.forEach(row => {
+            sum += getCumulativeRealisasiValue(row, m);
+          });
+          return sum;
+        });
+
+        return { alokasiArr, realisasiArr };
+      }, [data]);
+
+      useEffect(() => {
+        if (!canvasRef.current) return;
+        const ctx = canvasRef.current.getContext('2d');
+        if (chartRef.current) chartRef.current.destroy();
+
+        chartRef.current = new Chart(ctx, {
+          type: 'line',
+          data: {
+            labels: MONTHS,
+            datasets: [
+              {
+                label: 'Trendline Alokasi (EFS)',
+                data: monthlyTrendData.alokasiArr,
+                borderColor: '#006666',
+                backgroundColor: 'rgba(0, 102, 102, 0.1)',
+                borderWidth: 3,
+                fill: true,
+                tension: 0.3
+              },
+              {
+                label: 'Trendline Realisasi',
+                data: monthlyTrendData.realisasiArr,
+                borderColor: '#F15A24',
+                backgroundColor: 'rgba(241, 90, 36, 0.1)',
+                borderWidth: 3,
+                fill: true,
+                tension: 0.3
+              }
+            ]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: { position: 'top', labels: { font: { size: 10, weight: 'bold' } } },
+              tooltip: {
+                callbacks: {
+                  label: (ctx) => ` ${ctx.dataset.label}: ${formatIDR(ctx.raw)}`
+                }
+              }
+            },
+            scales: {
+              y: {
+                ticks: {
+                  callback: (val) => val >= 1e9 ? `${(val/1e9).toFixed(1)}M` : val >= 1e6 ? `${(val/1e6).toFixed(0)}Jt` : val,
+                  font: { size: 9 }
+                },
+                grid: { color: '#EDF2F7' }
+              },
+              x: {
+                ticks: { font: { size: 10, weight: 'bold' } },
+                grid: { display: false }
+              }
+            }
+          }
+        });
+
+        return () => { if (chartRef.current) chartRef.current.destroy(); };
+      }, [monthlyTrendData]);
+
+      return (
+        <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm space-y-3">
+          <div className="flex items-center justify-between border-b pb-2 border-slate-100">
+            <h4 className="font-extrabold text-slate-800 text-sm flex items-center space-x-2">
+              <i data-lucide="trending-up" className="w-4 h-4 text-bni-teal"></i>
+              <span>Trendline Alokasi vs Realisasi per Bulan (Jan - Des 2026)</span>
+            </h4>
+            <span className="text-[10px] font-bold text-bni-teal bg-bni-teal-subtle px-2 py-0.5 rounded-full">Annual Trend</span>
+          </div>
+          <div className="h-64 w-full relative">
+            <canvas ref={canvasRef}></canvas>
+          </div>
+        </div>
+      );
+    };
+
+    const HeatmapMatrix = ({ data, categories, selectedWilayah, masterOutletDict, reportMonth = 'Des' }) => {
+      const { matrixData, colTotals, rowTotals, grandTotal, activeRowLabels } = useMemo(() => {
+        let filteredRows = data;
+        if (selectedWilayah && selectedWilayah !== 'ALL') {
+          filteredRows = data.filter(row => row.wilayah === selectedWilayah);
+        }
+
+        const rowLabelsSet = new Set();
+        filteredRows.forEach(row => {
+          if (selectedWilayah && selectedWilayah !== 'ALL') {
+            rowLabelsSet.add(row.operatingUnit || 'Lainnya');
+          } else {
+            rowLabelsSet.add(row.wilayah || 'Lainnya');
+          }
+        });
+        const rowLabels = Array.from(rowLabelsSet).sort();
+
         const matrix = {};
         const colTot = {};
         const rowTot = {};
@@ -156,18 +271,18 @@
           colTot[c] = { alokasiEfs: 0, realisasi: 0 };
         });
 
-        wilayahs.forEach(w => {
-          matrix[w] = {};
-          rowTot[w] = { alokasiEfs: 0, realisasi: 0 };
+        rowLabels.forEach(rLabel => {
+          matrix[rLabel] = {};
+          rowTot[rLabel] = { alokasiEfs: 0, realisasi: 0 };
           categories.forEach(c => {
-            matrix[w][c] = { alokasiEfs: 0, realisasi: 0 };
+            matrix[rLabel][c] = { alokasiEfs: 0, realisasi: 0 };
           });
         });
 
         let grandTot = { alokasiEfs: 0, realisasi: 0 };
 
-        data.forEach(row => {
-          const w = row.wilayah;
+        filteredRows.forEach(row => {
+          const rLabel = (selectedWilayah && selectedWilayah !== 'ALL') ? (row.operatingUnit || 'Lainnya') : (row.wilayah || 'Lainnya');
           let cat = row.kategori || '';
           let matchedCat = null;
 
@@ -177,15 +292,15 @@
           else if (cat.toLowerCase().includes('perabotan') || cat.toLowerCase().includes('non otomasi')) matchedCat = "Perabotan Non Otomasi";
           else if (cat.toLowerCase().includes('kendaraan')) matchedCat = "Kendaraan";
 
-          if (w && matchedCat && matrix[w] && matrix[w][matchedCat]) {
+          if (rLabel && matchedCat && matrix[rLabel] && matrix[rLabel][matchedCat]) {
             const efs = getEfsValue(row, reportMonth);
             const real = getCumulativeRealisasiValue(row, reportMonth);
 
-            matrix[w][matchedCat].alokasiEfs += efs;
-            matrix[w][matchedCat].realisasi += real;
+            matrix[rLabel][matchedCat].alokasiEfs += efs;
+            matrix[rLabel][matchedCat].realisasi += real;
 
-            rowTot[w].alokasiEfs += efs;
-            rowTot[w].realisasi += real;
+            rowTot[rLabel].alokasiEfs += efs;
+            rowTot[rLabel].realisasi += real;
 
             colTot[matchedCat].alokasiEfs += efs;
             colTot[matchedCat].realisasi += real;
@@ -199,9 +314,10 @@
           matrixData: matrix, 
           colTotals: colTot, 
           rowTotals: rowTot, 
-          grandTotal: grandTot 
+          grandTotal: grandTot,
+          activeRowLabels: rowLabels
         };
-      }, [data, categories, wilayahs, reportMonth]);
+      }, [data, categories, selectedWilayah, reportMonth]);
 
       const getBgStylePct = (pct, alokasi) => {
         if (!alokasi || alokasi === 0) return { backgroundColor: '#FFFFFF', color: '#94A3B8' };
@@ -212,12 +328,14 @@
         return { backgroundColor: '#006666', color: '#FFFFFF' };
       };
 
+      const headerLabel = selectedWilayah && selectedWilayah !== 'ALL' ? `Operating Unit (${selectedWilayah})` : "Wilayah";
+
       return (
         <div className="w-full overflow-x-auto space-y-4">
           <table className="w-full text-center border-collapse text-[10px]">
             <thead>
               <tr className="bg-[#004d4d] text-white">
-                <th rowSpan="2" className="p-2 border border-teal-800 text-left w-[12%]">Wilayah</th>
+                <th rowSpan="2" className="p-2 border border-teal-800 text-left w-[15%]">{headerLabel}</th>
                 {categories.map(c => (
                   <th key={c} colSpan="3" className="p-1.5 border border-teal-800 font-extrabold uppercase text-[9px]">
                     {c}
@@ -241,40 +359,40 @@
               </tr>
             </thead>
             <tbody>
-              {wilayahs.map((w, idx) => {
-                const rowItem = rowTotals[w] || { alokasiEfs: 0, realisasi: 0 };
+              {activeRowLabels.map((rLabel, idx) => {
+                const rowItem = rowTotals[rLabel] || { alokasiEfs: 0, realisasi: 0 };
                 const rowPct = rowItem.alokasiEfs > 0 ? (rowItem.realisasi / rowItem.alokasiEfs) * 100 : 0;
                 const rowBgColor = idx % 2 === 0 ? 'bg-white' : 'bg-slate-50';
 
                 return (
-                  <tr key={w} className={rowBgColor}>
-                    <td className="p-1.5 font-bold text-slate-800 border border-slate-200 text-left">{w}</td>
+                  <tr key={rLabel} className={rowBgColor}>
+                    <td className="p-1.5 font-bold text-slate-800 border border-slate-200 text-left">{rLabel}</td>
                     {categories.map(c => {
-                      const item = matrixData[w] ? matrixData[w][c] : { alokasiEfs: 0, realisasi: 0 };
+                      const item = matrixData[rLabel] ? matrixData[rLabel][c] : { alokasiEfs: 0, realisasi: 0 };
                       const pct = item.alokasiEfs > 0 ? (item.realisasi / item.alokasiEfs) * 100 : 0;
                       const pctStyle = getBgStylePct(pct, item.alokasiEfs);
 
                       return (
-                        <React.Fragment key={`${w}-${c}`}>
-                          <td className="p-1 border border-slate-200 text-slate-700 font-medium whitespace-nowrap cursor-default hover:bg-slate-100" title={`${w} - ${c}\nAlokasi: ${formatIDR(item.alokasiEfs)}`}>
+                        <React.Fragment key={`${rLabel}-${c}`}>
+                          <td className="p-1 border border-slate-200 text-slate-700 font-medium whitespace-nowrap cursor-default hover:bg-slate-100" title={`${rLabel} - ${c}\nAlokasi: ${formatIDR(item.alokasiEfs)}`}>
                             {item.alokasiEfs > 0 ? formatSlimIDR(item.alokasiEfs) : '-'}
                           </td>
-                          <td className="p-1 border border-slate-200 text-slate-700 font-medium whitespace-nowrap cursor-default hover:bg-slate-100" title={`${w} - ${c}\nRealisasi: ${formatIDR(item.realisasi)}`}>
+                          <td className="p-1 border border-slate-200 text-slate-700 font-medium whitespace-nowrap cursor-default hover:bg-slate-100" title={`${rLabel} - ${c}\nRealisasi: ${formatIDR(item.realisasi)}`}>
                             {item.realisasi > 0 ? formatSlimIDR(item.realisasi) : '-'}
                           </td>
-                          <td style={pctStyle} className="p-1 border border-slate-200 font-extrabold whitespace-nowrap cursor-default" title={`${w} - ${c}\nAlokasi: ${formatIDR(item.alokasiEfs)}\nRealisasi: ${formatIDR(item.realisasi)}\nRealisasi (%): ${pct.toFixed(2)}%`}>
+                          <td style={pctStyle} className="p-1 border border-slate-200 font-extrabold whitespace-nowrap cursor-default" title={`${rLabel} - ${c}\nAlokasi: ${formatIDR(item.alokasiEfs)}\nRealisasi: ${formatIDR(item.realisasi)}\nRealisasi (%): ${pct.toFixed(2)}%`}>
                             {item.alokasiEfs > 0 ? `${pct.toFixed(2)}%` : '-'}
                           </td>
                         </React.Fragment>
                       );
                     })}
-                    <td className="p-1 border border-slate-300 font-bold text-slate-900 bg-slate-100 whitespace-nowrap cursor-default" title={`Total ${w}\nAlokasi: ${formatIDR(rowItem.alokasiEfs)}`}>
+                    <td className="p-1 border border-slate-300 font-bold text-slate-900 bg-slate-100 whitespace-nowrap cursor-default" title={`Total ${rLabel}\nAlokasi: ${formatIDR(rowItem.alokasiEfs)}`}>
                       {rowItem.alokasiEfs > 0 ? formatSlimIDR(rowItem.alokasiEfs) : '-'}
                     </td>
-                    <td className="p-1 border border-slate-300 font-bold text-slate-900 bg-slate-100 whitespace-nowrap cursor-default" title={`Total ${w}\nRealisasi: ${formatIDR(rowItem.realisasi)}`}>
+                    <td className="p-1 border border-slate-300 font-bold text-slate-900 bg-slate-100 whitespace-nowrap cursor-default" title={`Total ${rLabel}\nRealisasi: ${formatIDR(rowItem.realisasi)}`}>
                       {rowItem.realisasi > 0 ? formatSlimIDR(rowItem.realisasi) : '-'}
                     </td>
-                    <td className="p-1 border border-slate-300 font-black text-slate-900 bg-slate-100 whitespace-nowrap cursor-default" title={`Total ${w}\nAlokasi: ${formatIDR(rowItem.alokasiEfs)}\nRealisasi: ${formatIDR(rowItem.realisasi)}\nRealisasi (%): ${rowPct.toFixed(2)}%`}>
+                    <td className="p-1 border border-slate-300 font-black text-slate-900 bg-slate-100 whitespace-nowrap cursor-default" title={`Total ${rLabel}\nAlokasi: ${formatIDR(rowItem.alokasiEfs)}\nRealisasi: ${formatIDR(rowItem.realisasi)}\nRealisasi (%): ${rowPct.toFixed(2)}%`}>
                       {rowItem.alokasiEfs > 0 ? `${rowPct.toFixed(2)}%` : '-'}
                     </td>
                   </tr>
@@ -2245,7 +2363,7 @@
         const summary = {};
 
         targetCats.forEach(c => {
-          summary[c] = { alokasi: 0, realisasi: 0, totalProject: 0, aktif: 0, nonAktif: 0 };
+          summary[c] = { alokasi: 0, realisasi: 0, totalProject: 0, atCount: 0, ahgCount: 0 };
         });
 
         filteredData.forEach(row => {
@@ -2266,10 +2384,12 @@
             summary[matchedCat].realisasi += rowReal;
             summary[matchedCat].totalProject += 1;
             
-            if (String(row.statusProject).toUpperCase() === 'NON AKTIF' || String(row.statusProject).toUpperCase() === 'DROPPED') {
-              summary[matchedCat].nonAktif += 1;
-            } else {
-              summary[matchedCat].aktif += 1;
+            // Mengubah penghitungan berdasarkan kategoriProject (AT / AHG)
+            const katProj = String(row.kategoriProject || '').toUpperCase().trim();
+            if (katProj.includes('AT')) {
+              summary[matchedCat].atCount += 1;
+            } else if (katProj.includes('AHG')) {
+              summary[matchedCat].ahgCount += 1;
             }
           }
         });
@@ -2856,12 +2976,13 @@
                             </div>
 
                             <div className="flex items-center justify-between text-[11px] bg-slate-50 p-2 rounded-xl">
-                              <span className="text-slate-400 font-medium">Project: <b className="text-slate-700">{data.totalProject}</b></span>
-                              <div className="space-x-1 border-l pl-1 border-slate-200">
-                                <span className="text-emerald-700 bg-emerald-50 font-bold px-1 py-0.5 rounded text-[10px]">{data.aktif} A</span>
-                                <span className="text-rose-700 bg-rose-50 font-bold px-1 py-0.5 rounded text-[10px]">{data.nonAktif} NA</span>
-                              </div>
-                            </div>
+							  <span className="text-slate-400 font-medium">Project: <b className="text-slate-700">{data.totalProject}</b></span>
+							  <div className="space-x-1 border-l pl-1 border-slate-200">
+								<span className="text-blue-700 bg-blue-50 font-bold px-1 py-0.5 rounded text-[10px]">{data.atCount} AT</span>
+								<span className="text-purple-700 bg-purple-50 font-bold px-1 py-0.5 rounded text-[10px]">{data.ahgCount} AHG</span>
+							  </div>
+							</div>
+							
 
                             <div className="grid grid-cols-2 gap-1 text-xs border-t pt-2 border-slate-100">
                               <div>
@@ -2878,6 +2999,12 @@
                       })}
                     </div>
                   </div>
+				
+				{/* ─── GRAFIK TRENDLINE DITEMPATKAN DI SINI (DI LUAR LOOP MATA ANGGARAN) ─── */}
+                  <MonthlyTrendlineChart 
+                    data={activeSourceData} 
+                    reportMonth={reportMonth} 
+                  />
 
                   <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                     <div className="lg:col-span-2 bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm flex flex-col justify-between">
@@ -2914,11 +3041,12 @@
                     <p className="text-xs text-slate-400">Sebaran komprehensif alokasi investasi (EFS), realisasi kumulatif, dan tingkat persentase penyerapan per unit wilayah dan kategori.</p>
 
                     <HeatmapMatrix 
-                      data={activeSourceData} 
-                      categories={kategoriList} 
-                      wilayahs={wilayahList} 
-                      reportMonth={reportMonth}
-                    />
+					  data={activeSourceData} 
+					  categories={kategoriList} 
+					  selectedWilayah={selectedWilayah}
+					  masterOutletDict={masterOutletDict} 
+					  reportMonth={reportMonth}
+					/>
                   </div>
 
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
