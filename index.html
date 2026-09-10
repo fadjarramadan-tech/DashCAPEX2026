@@ -127,8 +127,22 @@
       return formatIDR(val);
     };
 
-    const MiniSparkBar = ({ color = "teal" }) => {
-      const bars = [35, 55, 40, 70, 60, 95];
+    const MiniSparkBar = ({ data, reportMonth, color = "teal" }) => {
+      const currentMonthIdx = MONTHS.findIndex(m => m.toLowerCase() === reportMonth.toLowerCase());
+      const startIdx = Math.max(0, (currentMonthIdx !== -1 ? currentMonthIdx : MONTHS.length - 1) - 5);
+      const targetMonths = MONTHS.slice(startIdx, (currentMonthIdx !== -1 ? currentMonthIdx : MONTHS.length - 1) + 1);
+      
+      const barValues = targetMonths.map(m => {
+        let sum = 0;
+        data.forEach(row => {
+          sum += color === "orange" ? getCumulativeRealisasiValue(row, m) : getEfsValue(row, m);
+        });
+        return sum;
+      });
+
+      const maxVal = Math.max(...barValues, 1);
+      const bars = barValues.map(v => Math.max(15, Math.round((v / maxVal) * 100)));
+
       return (
         <div className="flex items-end space-x-1.5 h-12">
           {bars.map((height, idx) => (
@@ -146,12 +160,16 @@
       );
     };
 
-const MonthlyTrendlineChart = ({ data, reportMonth }) => {
+    const MonthlyTrendlineChart = ({ data, reportMonth }) => {
       const canvasRef = useRef(null);
       const chartRef = useRef(null);
 
+      const currentMonthIdx = MONTHS.findIndex(m => m.toLowerCase() === reportMonth.toLowerCase());
+      const maxIndex = currentMonthIdx !== -1 ? currentMonthIdx : MONTHS.length - 1;
+      const activeMonths = MONTHS.slice(0, maxIndex + 1);
+
       const monthlyTrendData = useMemo(() => {
-        const alokasiArr = MONTHS.map(m => {
+        const alokasiArr = activeMonths.map(m => {
           let sum = 0;
           data.forEach(row => {
             sum += getEfsValue(row, m);
@@ -159,7 +177,7 @@ const MonthlyTrendlineChart = ({ data, reportMonth }) => {
           return sum;
         });
 
-        const realisasiArr = MONTHS.map(m => {
+        const realisasiArr = activeMonths.map(m => {
           let sum = 0;
           data.forEach(row => {
             sum += getCumulativeRealisasiValue(row, m);
@@ -168,7 +186,7 @@ const MonthlyTrendlineChart = ({ data, reportMonth }) => {
         });
 
         return { alokasiArr, realisasiArr };
-      }, [data]);
+      }, [data, activeMonths]);
 
       useEffect(() => {
         if (!canvasRef.current) return;
@@ -178,7 +196,7 @@ const MonthlyTrendlineChart = ({ data, reportMonth }) => {
         chartRef.current = new Chart(ctx, {
           type: 'line',
           data: {
-            labels: MONTHS,
+            labels: activeMonths,
             datasets: [
               {
                 label: 'Trendline Alokasi (EFS)',
@@ -228,16 +246,16 @@ const MonthlyTrendlineChart = ({ data, reportMonth }) => {
         });
 
         return () => { if (chartRef.current) chartRef.current.destroy(); };
-      }, [monthlyTrendData]);
+      }, [monthlyTrendData, activeMonths]);
 
       return (
         <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm space-y-3">
           <div className="flex items-center justify-between border-b pb-2 border-slate-100">
             <h4 className="font-extrabold text-slate-800 text-sm flex items-center space-x-2">
               <i data-lucide="trending-up" className="w-4 h-4 text-bni-teal"></i>
-              <span>Trendline Alokasi vs Realisasi per Bulan (Jan - Des 2026)</span>
+              <span>Trendline Alokasi vs Realisasi per Bulan (Jan - {reportMonth} 2026)</span>
             </h4>
-            <span className="text-[10px] font-bold text-bni-teal bg-bni-teal-subtle px-2 py-0.5 rounded-full">Annual Trend</span>
+            <span className="text-[10px] font-bold text-bni-teal bg-bni-teal-subtle px-2 py-0.5 rounded-full">YTD Trend</span>
           </div>
           <div className="h-64 w-full relative">
             <canvas ref={canvasRef}></canvas>
@@ -1892,6 +1910,7 @@ const MonthlyTrendlineChart = ({ data, reportMonth }) => {
       const [selectedUnit, setSelectedUnit] = useState('ALL');
 
       const [reportMonth, setReportMonth] = useState('Jul');
+      const [isBudgetSummaryOpen, setIsBudgetSummaryOpen] = useState(false); // State untuk expand/collapse ringkasan anggaran
 
       const [tableSearchTerm, setTableSearchTerm] = useState('');
       const [tableWilayahFilter, setTableWilayahFilter] = useState('ALL');
@@ -1930,7 +1949,7 @@ const MonthlyTrendlineChart = ({ data, reportMonth }) => {
         if (window.lucide) {
           window.lucide.createIcons();
         }
-      }, [activeTab, currentPage, loading, selectedProjectForModal]);
+      }, [activeTab, currentPage, loading, selectedProjectForModal, isBudgetSummaryOpen]);
 
       useEffect(() => {
         setCurrentPage(1);
@@ -1971,7 +1990,6 @@ const MonthlyTrendlineChart = ({ data, reportMonth }) => {
       const activeSourceData = useMemo(() => {
         return rawData.map(item => {
           const mKey = reportMonth.toLowerCase();
-          // Mengambil status EFS secara dinamis dari sheet STATUS berdasarkan Bulan Laporan yang dipilih
           const dynamicStatusEfs = (item.statusEfsMonthly && item.statusEfsMonthly[mKey]) 
             ? item.statusEfsMonthly[mKey] 
             : (item.statusEfs || 'Active');
@@ -2357,7 +2375,6 @@ const MonthlyTrendlineChart = ({ data, reportMonth }) => {
         };
       }, [rawData, reportMonth]);
 
-      // Summary Box per Mata Anggaran kini menggunakan filteredData agar ikut terfilter sesuai dropdown (Grup, Wilayah, Unit Kerja)
       const categorySummaryBoxes = useMemo(() => {
         const targetCats = ["Bangunan Gedung", "Tanah", "Perabotan Otomasi", "Perabotan Non Otomasi", "Kendaraan"];
         const summary = {};
@@ -2366,7 +2383,12 @@ const MonthlyTrendlineChart = ({ data, reportMonth }) => {
           summary[c] = { alokasi: 0, realisasi: 0, totalProject: 0, atCount: 0, ahgCount: 0 };
         });
 
-        filteredData.forEach(row => {
+        const activeOnlyData = mappedProjectsData.filter(item => {
+          const sEfs = String(item.statusEfs || 'Active').trim().toLowerCase();
+          return sEfs === 'active' || sEfs === 'actived';
+        });
+
+        activeOnlyData.forEach(row => {
           let cat = (row.kategori || '').toLowerCase().trim();
           let matchedCat = null;
 
@@ -2384,7 +2406,6 @@ const MonthlyTrendlineChart = ({ data, reportMonth }) => {
             summary[matchedCat].realisasi += rowReal;
             summary[matchedCat].totalProject += 1;
             
-            // Mengubah penghitungan berdasarkan kategoriProject (AT / AHG)
             const katProj = String(row.kategoriProject || '').toUpperCase().trim();
             if (katProj.includes('AT')) {
               summary[matchedCat].atCount += 1;
@@ -2395,7 +2416,7 @@ const MonthlyTrendlineChart = ({ data, reportMonth }) => {
         });
 
         return summary;
-      }, [filteredData, reportMonth]);
+      }, [mappedProjectsData, reportMonth]);
 
       const mirrorChartData = useMemo(() => {
         const mapWilayah = {};
@@ -2875,81 +2896,105 @@ const MonthlyTrendlineChart = ({ data, reportMonth }) => {
               )}
 
               {activeTab !== 'historical' && activeTab !== 'upload' && activeTab !== 'prognosa' && (
-                <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm space-y-3">
-                  <div className="flex items-center justify-between border-b pb-2 border-slate-100">
-                    <h4 className="font-extrabold text-slate-800 text-sm flex items-center space-x-2">
+                <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm space-y-3 transition-all">
+                  <div 
+                    onClick={() => setIsBudgetSummaryOpen(!isBudgetSummaryOpen)}
+                    className="flex items-center justify-between cursor-pointer select-none group"
+                  >
+                    <div className="flex items-center space-x-2">
                       <i data-lucide="layers" className="w-4 h-4 text-bni-teal"></i>
-                      <span>Ringkasan Alokasi Anggaran (3 Versi)</span>
-                    </h4>
-                    <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">Total Alokasi</span>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div className="bg-teal-50/50 border border-teal-100 p-4 rounded-xl">
-                      <span className="text-[10px] font-bold text-teal-700 uppercase">a. Usul Alokasi Awal</span>
-                      <h4 className="text-xl font-black text-slate-800 mt-1">{formatCompactIDR(stats.sumAlokasiAwal)}</h4>
-                      <p className="text-[10px] text-slate-400 mt-1">{formatIDR(stats.sumAlokasiAwal)}</p>
+                      <h4 className="font-extrabold text-slate-800 text-sm group-hover:text-bni-teal transition-colors">
+                        Ringkasan Alokasi Anggaran (3 Versi)
+                      </h4>
                     </div>
 
-                    <div className="bg-amber-50/50 border border-amber-100 p-4 rounded-xl">
-                      <span className="text-[10px] font-bold text-amber-700 uppercase">b. Usul Alokasi Revisi RBB</span>
-                      <h4 className="text-xl font-black text-slate-800 mt-1">{formatCompactIDR(stats.sumAlokasiRevisiRbb)}</h4>
-                      <p className="text-[10px] text-slate-400 mt-1">{formatIDR(stats.sumAlokasiRevisiRbb)}</p>
-                    </div>
-
-                    <div className="bg-blue-50/50 border border-blue-100 p-4 rounded-xl">
-                      <span className="text-[10px] font-bold text-blue-700 uppercase">c. Alokasi EFS ({reportMonth})</span>
-                      <h4 className="text-xl font-black text-slate-800 mt-1">{formatCompactIDR(stats.sumAlokasiEfs)}</h4>
-                      <p className="text-[10px] text-slate-400 mt-1">{formatIDR(stats.sumAlokasiEfs)}</p>
+                    <div className="flex items-center space-x-2">
+                      <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">
+                        Total Alokasi
+                      </span>
+                      <div className="p-1 rounded-lg hover:bg-slate-100 text-slate-400 transition-transform duration-200">
+                        <i data-lucide={isBudgetSummaryOpen ? "chevron-up" : "chevron-down"} className="w-4 h-4"></i>
+                      </div>
                     </div>
                   </div>
+
+                  {isBudgetSummaryOpen && (
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-3 border-t border-slate-100 animate-fadeIn">
+                      <div className="bg-teal-50/50 border border-teal-100 p-4 rounded-xl">
+                        <span className="text-[10px] font-bold text-teal-700 uppercase">a. Usul Alokasi Awal</span>
+                        <h4 className="text-xl font-black text-slate-800 mt-1">{formatCompactIDR(stats.sumAlokasiAwal)}</h4>
+                        <p className="text-[10px] text-slate-400 mt-1">{formatIDR(stats.sumAlokasiAwal)}</p>
+                      </div>
+
+                      <div className="bg-amber-50/50 border border-amber-100 p-4 rounded-xl">
+                        <span className="text-[10px] font-bold text-amber-700 uppercase">b. Usul Alokasi Revisi RBB</span>
+                        <h4 className="text-xl font-black text-slate-800 mt-1">{formatCompactIDR(stats.sumAlokasiRevisiRbb)}</h4>
+                        <p className="text-[10px] text-slate-400 mt-1">{formatIDR(stats.sumAlokasiRevisiRbb)}</p>
+                      </div>
+
+                      <div className="bg-blue-50/50 border border-blue-100 p-4 rounded-xl">
+                        <span className="text-[10px] font-bold text-blue-700 uppercase">c. Alokasi EFS ({reportMonth})</span>
+                        <h4 className="text-xl font-black text-slate-800 mt-1">{formatCompactIDR(stats.sumAlokasiEfs)}</h4>
+                        <p className="text-[10px] text-slate-400 mt-1">{formatIDR(stats.sumAlokasiEfs)}</p>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
               {activeTab === 'overview' && (
                 <>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-                    <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm flex items-center justify-between">
-                      <div>
-                        <span className="text-xs font-bold text-slate-400 uppercase">Total Alokasi EFS ({reportMonth})</span>
-                        <h4 className="text-2xl font-black text-slate-800 mt-2 tracking-tight">{formatCompactIDR(stats.sumAlokasiEfs)}</h4>
-                        <p className="text-[11px] font-semibold text-blue-600 mt-1 flex items-center">
-                          <i data-lucide="arrow-up-right" className="w-3.5 h-3.5 mr-0.5"></i>
-                          <span>Alokasi (EFS)</span>
-                        </p>
-                      </div>
-                      <MiniSparkBar color="teal" />
-                    </div>
+                  {(() => {
+                    let totalAllAlokasi = 0;
+                    let totalAllRealisasi = 0;
+                    let totalAllProject = 0;
+                    let totalAllAt = 0;
+                    let totalAllAhg = 0;
 
-                    <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm flex items-center justify-between">
-                      <div>
-                        <span className="text-xs font-bold text-slate-400 uppercase">Total Realisasi Kumulatif ({reportMonth})</span>
-                        <h4 className="text-2xl font-black text-bni-orange mt-2 tracking-tight">{formatCompactIDR(stats.totalRealisasi)}</h4>
-                        <p className="text-[11px] font-semibold text-bni-orange mt-1 flex items-center">
-                          <i data-lucide="trending-up" className="w-3.5 h-3.5 mr-0.5"></i>
-                          <span>Penyerapan Kumulatif {reportMonth}</span>
-                        </p>
-                      </div>
-                      <MiniSparkBar color="orange" />
-                    </div>
+                    Object.values(categorySummaryBoxes).forEach(box => {
+                      totalAllAlokasi += box.alokasi;
+                      totalAllRealisasi += box.realisasi;
+                      totalAllProject += box.totalProject;
+                      totalAllAt += box.atCount;
+                      totalAllAhg += box.ahgCount;
+                    });
 
-                    <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm flex flex-col justify-between">
-                      <div className="flex items-center justify-between border-b pb-3 border-slate-100">
-                        <span className="text-xs font-bold text-slate-400 uppercase">Realisasi vs Alokasi</span>
-                        <span className="text-xs font-extrabold text-bni-teal bg-bni-teal-subtle px-2 py-0.5 rounded-md">KPI Target</span>
-                      </div>
-                      <div className="grid grid-cols-2 gap-4 pt-2">
-                        <div>
-                          <p className="text-[11px] text-slate-400 font-medium">Realisasi (%)</p>
-                          <p className="text-xl font-extrabold text-slate-800">{stats.pctTotal}%</p>
+                    const totalPct = totalAllAlokasi > 0 ? ((totalAllRealisasi / totalAllAlokasi) * 100).toFixed(2) : '0.00';
+
+                    return (
+                      <div className="bg-gradient-to-r from-bni-teal to-bni-teal-dark text-white p-5 rounded-2xl shadow-md flex flex-wrap items-center justify-between gap-4">
+                        <div className="space-y-1">
+                          <div className="flex items-center space-x-2">
+                            <span className="bg-bni-orange text-white text-[9px] font-black px-2 py-0.5 rounded uppercase tracking-wider">Alokasi</span>
+                            <span className="text-teal-100 text-xs font-bold">Seluruh Mata Anggaran ({reportMonth})</span>
+                          </div>
+                          <h4 className="text-2xl font-black tracking-tight">{formatCompactIDR(totalAllAlokasi)}</h4>
+                          <p className="text-[11px] text-teal-100">{formatIDR(totalAllAlokasi)}</p>
                         </div>
-                        <div>
-                          <p className="text-[11px] text-slate-400 font-medium">Anggaran Blm Terserap</p>
-                          <p className="text-sm font-bold text-slate-600 truncate">{formatCompactIDR(stats.sisaBudget)}</p>
+
+                        <div className="flex flex-wrap items-center gap-6 bg-white/10 backdrop-blur-sm px-5 py-3 rounded-xl border border-white/10">
+                          <div>
+                            <span className="text-[10px] text-teal-200 uppercase block font-semibold">Total Proyek & Status</span>
+                            <div className="flex items-center space-x-2 mt-0.5">
+                              <span className="font-bold text-xs">{totalAllProject} Proyek</span>
+                              <span className="bg-blue-500/30 text-blue-100 text-[10px] font-bold px-1.5 py-0.2 rounded">{totalAllAt} AT</span>
+                              <span className="bg-purple-500/30 text-purple-100 text-[10px] font-bold px-1.5 py-0.2 rounded">{totalAllAhg} AHG</span>
+                            </div>
+                          </div>
+
+                          <div className="border-l border-white/20 pl-6">
+                            <span className="text-[10px] text-teal-200 uppercase block font-semibold">Realisasi Kumulatif</span>
+                            <span className="text-lg font-black text-amber-300">{formatCompactIDR(totalAllRealisasi)}</span>
+                          </div>
+
+                          <div className="border-l border-white/20 pl-6 text-center">
+                            <span className="text-[10px] text-teal-200 uppercase block font-semibold">Pencapaian</span>
+                            <span className="text-lg font-black bg-white text-bni-teal px-2 py-0.5 rounded-lg shadow-sm">{totalPct}%</span>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  </div>
+                    );
+                  })()}
 
                   <div>
                     <h4 className="font-bold text-slate-800 text-sm mb-3 flex items-center space-x-2">
@@ -2976,13 +3021,12 @@ const MonthlyTrendlineChart = ({ data, reportMonth }) => {
                             </div>
 
                             <div className="flex items-center justify-between text-[11px] bg-slate-50 p-2 rounded-xl">
-							  <span className="text-slate-400 font-medium">Project: <b className="text-slate-700">{data.totalProject}</b></span>
-							  <div className="space-x-1 border-l pl-1 border-slate-200">
-								<span className="text-blue-700 bg-blue-50 font-bold px-1 py-0.5 rounded text-[10px]">{data.atCount} AT</span>
-								<span className="text-purple-700 bg-purple-50 font-bold px-1 py-0.5 rounded text-[10px]">{data.ahgCount} AHG</span>
-							  </div>
-							</div>
-							
+                              <span className="text-slate-400 font-medium">Project: <b className="text-slate-700">{data.totalProject}</b></span>
+                              <div className="space-x-1 border-l pl-1 border-slate-200">
+                                <span className="text-blue-700 bg-blue-50 font-bold px-1 py-0.5 rounded text-[10px]">{data.atCount} AT</span>
+                                <span className="text-purple-700 bg-purple-50 font-bold px-1 py-0.5 rounded text-[10px]">{data.ahgCount} AHG</span>
+                              </div>
+                            </div>
 
                             <div className="grid grid-cols-2 gap-1 text-xs border-t pt-2 border-slate-100">
                               <div>
@@ -2999,10 +3043,9 @@ const MonthlyTrendlineChart = ({ data, reportMonth }) => {
                       })}
                     </div>
                   </div>
-				
-				{/* ─── GRAFIK TRENDLINE DITEMPATKAN DI SINI (DI LUAR LOOP MATA ANGGARAN) ─── */}
+
                   <MonthlyTrendlineChart 
-                    data={activeSourceData} 
+                    data={filteredData} 
                     reportMonth={reportMonth} 
                   />
 
@@ -3041,12 +3084,12 @@ const MonthlyTrendlineChart = ({ data, reportMonth }) => {
                     <p className="text-xs text-slate-400">Sebaran komprehensif alokasi investasi (EFS), realisasi kumulatif, dan tingkat persentase penyerapan per unit wilayah dan kategori.</p>
 
                     <HeatmapMatrix 
-					  data={activeSourceData} 
-					  categories={kategoriList} 
-					  selectedWilayah={selectedWilayah}
-					  masterOutletDict={masterOutletDict} 
-					  reportMonth={reportMonth}
-					/>
+                      data={activeSourceData} 
+                      categories={kategoriList} 
+                      selectedWilayah={selectedWilayah}
+                      masterOutletDict={masterOutletDict} 
+                      reportMonth={reportMonth}
+                    />
                   </div>
 
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
