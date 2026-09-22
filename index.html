@@ -461,15 +461,33 @@ const HeatmapMatrix = ({ data, categories, selectedWilayah, selectedGroup, maste
       );
     };
 
-    const MirrorHorizontalBarChart = ({ labels, alokasiData, pctRealisasiData }) => {
+const MirrorHorizontalBarChart = ({ labels, alokasiData, pctRealisasiData }) => {
       const canvasLeftRef = useRef(null);
       const canvasRightRef = useRef(null);
       const chartLeftRef = useRef(null);
       const chartRightRef = useRef(null);
 
+      // Urutkan data Mirror Right (% Realisasi) secara independen dari tinggi ke rendah
+      const sortedRightData = useMemo(() => {
+        const combined = labels.map((lbl, idx) => ({
+          label: lbl,
+          alokasi: alokasiData[idx],
+          pct: pctRealisasiData[idx]
+        }));
+
+        // Sort berdasarkan % realisasi tertinggi (descending)
+        combined.sort((a, b) => b.pct - a.pct);
+
+        return {
+          labels: combined.map(item => item.label),
+          pct: combined.map(item => item.pct)
+        };
+      }, [labels, alokasiData, pctRealisasiData]);
+
       useEffect(() => {
         if (!canvasLeftRef.current || !canvasRightRef.current) return;
 
+        // Chart Kiri (Alokasi EFS) - Label Y disembunyikan
         const ctxLeft = canvasLeftRef.current.getContext('2d');
         if (chartLeftRef.current) chartLeftRef.current.destroy();
 
@@ -502,24 +520,23 @@ const HeatmapMatrix = ({ data, categories, selectedWilayah, selectedGroup, maste
                 grid: { color: '#EDF2F7' }
               },
               y: {
-                position: 'right',
-                ticks: { font: { size: 10, weight: 'bold' } },
-                grid: { display: false }
+                display: false // Label dihilangkan
               }
             }
           }
         });
 
+        // Chart Kanan (% Realisasi) - Urut % tertinggi & label Y disembunyikan
         const ctxRight = canvasRightRef.current.getContext('2d');
         if (chartRightRef.current) chartRightRef.current.destroy();
 
         chartRightRef.current = new Chart(ctxRight, {
           type: 'bar',
           data: {
-            labels: labels,
+            labels: sortedRightData.labels,
             datasets: [{
               label: '% Realisasi',
-              data: pctRealisasiData,
+              data: sortedRightData.pct,
               backgroundColor: '#F15A24',
               borderRadius: 4
             }]
@@ -530,7 +547,12 @@ const HeatmapMatrix = ({ data, categories, selectedWilayah, selectedGroup, maste
             maintainAspectRatio: false,
             plugins: {
               legend: { display: false },
-              tooltip: { callbacks: { label: (ctx) => ` Penyerapan Realisasi: ${ctx.raw.toFixed(2)}%` } }
+              tooltip: { 
+                callbacks: { 
+                  title: (ctx) => ctx[0].label,
+                  label: (ctx) => ` Penyerapan Realisasi: ${ctx.raw.toFixed(2)}%` 
+                } 
+              }
             },
             scales: {
               x: {
@@ -541,9 +563,7 @@ const HeatmapMatrix = ({ data, categories, selectedWilayah, selectedGroup, maste
                 grid: { color: '#EDF2F7' }
               },
               y: {
-                position: 'left',
-                ticks: { font: { size: 10, weight: 'bold' } },
-                grid: { display: false }
+                display: false // Label dihilangkan
               }
             }
           }
@@ -553,7 +573,7 @@ const HeatmapMatrix = ({ data, categories, selectedWilayah, selectedGroup, maste
           if (chartLeftRef.current) chartLeftRef.current.destroy();
           if (chartRightRef.current) chartRightRef.current.destroy();
         };
-      }, [labels, alokasiData, pctRealisasiData]);
+      }, [labels, alokasiData, pctRealisasiData, sortedRightData]);
 
       return (
         <div className="grid grid-cols-2 gap-2 h-72">
@@ -576,7 +596,7 @@ const HeatmapMatrix = ({ data, categories, selectedWilayah, selectedGroup, maste
                 <i data-lucide="percent" className="w-3.5 h-3.5"></i>
                 <span>% Realisasi (vs Alokasi)</span>
               </span>
-              <span className="text-[9px] font-bold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">Mirror Right</span>
+              <span className="text-[9px] font-bold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">Mirror Right (Sorted Top %)</span>
             </div>
             <div className="flex-1 w-full relative">
               <canvas ref={canvasRightRef}></canvas>
@@ -2465,47 +2485,58 @@ useEffect(() => {
       }, [mappedProjectsData, reportMonth]);
 
 		const mirrorChartData = useMemo(() => {
-        const mapWilayah = {};
+        const mapData = {};
 
-        rawData.forEach(row => {
-          // Filter hanya status EFS "Active" (case-insensitive)
+        // Filter awal: Hanya ambil proyek dengan status EFS "Active" (case-insensitive)
+        let filteredRows = rawData.filter(row => {
           let stEfs = String(row.statusEfs || 'Active').trim().toLowerCase();
           if (stEfs === 'actived') stEfs = 'active';
-          if (stEfs !== 'active') return;
+          return stEfs === 'active';
+        });
 
-          // Filter berdasarkan Droplist Grup (NSD / Wilayah)
-          if (selectedGroup !== 'ALL') {
-            if (String(row.typeGroup || '').trim().toUpperCase() !== selectedGroup.toUpperCase()) return;
+        // Filter berdasarkan Droplist Utama "Grup" (NSD vs Wilayah)
+        if (selectedGroup === 'NSD') {
+          filteredRows = filteredRows.filter(row => String(row.typeGroup || '').trim().toUpperCase() === 'NSD');
+        } else if (selectedGroup === 'WILAYAH') {
+          filteredRows = filteredRows.filter(row => String(row.typeGroup || '').trim().toUpperCase() === 'WILAYAH');
+        }
+
+        // Filter berdasarkan Wilayah spesifik jika dipilih
+        if (selectedWilayah && selectedWilayah !== 'ALL') {
+          filteredRows = filteredRows.filter(row => row.wilayah === selectedWilayah);
+        }
+
+        // Tentukan grouping key: Jika wilayah spesifik dipilih, group berdasarkan operatingUnit. Jika ALL, group berdasarkan wilayah.
+        filteredRows.forEach(row => {
+          const keyLabel = (selectedWilayah && selectedWilayah !== 'ALL') 
+            ? (row.operatingUnit || 'Lainnya') 
+            : (row.wilayah || 'Lainnya');
+
+          if (!mapData[keyLabel]) {
+            mapData[keyLabel] = { alokasiEfs: 0, realisasi: 0 };
           }
-
-          // Filter berdasarkan Wilayah
-          if (selectedWilayah !== 'ALL') {
-            if (row.wilayah !== selectedWilayah) return;
-          }
-
-          const w = row.wilayah || 'Lainnya';
-          if (!mapWilayah[w]) mapWilayah[w] = { alokasiEfs: 0, realisasi: 0 };
 
           const paguEfs = getEfsValue(row, reportMonth);
           const rowReal = getCumulativeRealisasiValue(row, reportMonth);
 
-          mapWilayah[w].alokasiEfs += paguEfs;
-          mapWilayah[w].realisasi += rowReal;
+          mapData[keyLabel].alokasiEfs += paguEfs;
+          mapData[keyLabel].realisasi += rowReal;
         });
 
-        const listSorted = Object.keys(mapWilayah)
-          .map(w => {
-            const aloEfs = mapWilayah[w].alokasiEfs;
-            const rea = mapWilayah[w].realisasi;
+        const listSorted = Object.keys(mapData)
+          .map(name => {
+            const aloEfs = mapData[name].alokasiEfs;
+            const rea = mapData[name].realisasi;
             const pct = aloEfs > 0 ? (rea / aloEfs) * 100 : 0; 
-            return { name: w, alokasi: aloEfs, pctRealisasi: pct };
+            return { name, alokasi: aloEfs, pctRealisasi: pct };
           })
           .sort((a, b) => b.alokasi - a.alokasi);
 
         return {
           labels: listSorted.map(item => item.name),
           alokasi: listSorted.map(item => item.alokasi),
-          pctRealisasi: listSorted.map(item => item.pctRealisasi)
+          pctRealisasi: listSorted.map(item => item.pctRealisasi),
+          axisLabel: (selectedWilayah && selectedWilayah !== 'ALL') ? `Operating Unit (${selectedWilayah})` : "Wilayah"
         };
       }, [rawData, reportMonth, selectedGroup, selectedWilayah]);
 
@@ -3207,9 +3238,9 @@ useEffect(() => {
                     <div className="lg:col-span-2 bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm flex flex-col justify-between">
                       <div className="flex items-center justify-between border-b pb-2 mb-3 border-slate-100">
                         <h4 className="font-extrabold text-slate-800 text-sm flex items-center space-x-2">
-                          <i data-lucide="bar-chart-horizontal" className="w-4 h-4 text-bni-teal"></i>
-                          <span>Perbandingan Alokasi vs % Realisasi per Wilayah ({reportMonth})</span>
-                        </h4>
+						  <i data-lucide="bar-chart-horizontal" className="w-4 h-4 text-bni-teal"></i>
+						  <span>Perbandingan Alokasi vs % Realisasi per {mirrorChartData.axisLabel} ({reportMonth})</span>
+						</h4>
                         <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">Urut Tertinggi</span>
                       </div>
                       
