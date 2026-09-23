@@ -526,48 +526,52 @@ const MirrorHorizontalBarChart = ({ labels, alokasiData, pctRealisasiData }) => 
           }
         });
 
-        // Chart Kanan (% Realisasi) - Urut % tertinggi & label Y disembunyikan
-        const ctxRight = canvasRightRef.current.getContext('2d');
-        if (chartRightRef.current) chartRightRef.current.destroy();
+// Chart Kanan (% Realisasi) - Urut % tertinggi & label Y disembunyikan
+const ctxRight = canvasRightRef.current.getContext('2d');
+if (chartRightRef.current) chartRightRef.current.destroy();
 
-        chartRightRef.current = new Chart(ctxRight, {
-          type: 'bar',
-          data: {
-            labels: sortedRightData.labels,
-            datasets: [{
-              label: '% Realisasi',
-              data: sortedRightData.pct,
-              backgroundColor: '#F15A24',
-              borderRadius: 4
-            }]
-          },
-          options: {
-            indexAxis: 'y',
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-              legend: { display: false },
-              tooltip: { 
-                callbacks: { 
-                  title: (ctx) => ctx[0].label,
-                  label: (ctx) => ` Penyerapan Realisasi: ${ctx.raw.toFixed(2)}%` 
-                } 
-              }
-            },
-            scales: {
-              x: {
-                ticks: {
-                  callback: (val) => `${val}%`,
-                  font: { size: 9 }
-                },
-                grid: { color: '#EDF2F7' }
-              },
-              y: {
-                display: false // Label dihilangkan
-              }
-            }
-          }
-        });
+chartRightRef.current = new Chart(ctxRight, {
+  type: 'bar',
+  data: {
+    labels: sortedRightData.labels,
+    datasets: [{
+      label: '% Realisasi',
+      data: sortedRightData.pct,
+      backgroundColor: '#F15A24',
+      borderRadius: 4
+    }]
+  },
+  options: {
+    indexAxis: 'y',
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false },
+      tooltip: { 
+        callbacks: { 
+          title: (ctx) => ctx[0].label,
+          label: (ctx) => ` Penyerapan Realisasi: ${ctx.raw.toFixed(2)}%` 
+        } 
+      }
+    },
+    scales: {
+      x: {
+        // --- PENYESUAIAN SUMBU X STATIS (0% - 100%) ---
+        min: 0,
+        max: 100,
+        ticks: {
+          stepSize: 20, // (Opsional) Menampilkan garis kelipatan 20% (0%, 20%, 40%, dst.)
+          callback: (val) => `${val}%`,
+          font: { size: 9 }
+        },
+        grid: { color: '#EDF2F7' }
+      },
+      y: {
+        display: false // Label dihilangkan
+      }
+    }
+  }
+});
 
         return () => {
           if (chartLeftRef.current) chartLeftRef.current.destroy();
