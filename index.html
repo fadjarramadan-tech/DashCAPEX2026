@@ -1148,143 +1148,167 @@ chartRightRef.current = new Chart(ctxRight, {
       );
     };
 
-	const HistoricalAnalysisView = ({ data }) => {
-      const [m1, setM1] = useState('Jun');
-      const [m2, setM2] = useState('Jul');
+const HistoricalAnalysisView = ({ data, selectedGroup = 'ALL', selectedWilayah = 'ALL', selectedUnit = 'ALL' }) => {
+      const [m1, setM1] = useState('Jun'); // Baseline
+      const [m2, setM2] = useState('Jul'); // Bulan Pembanding
       const [searchQuery, setSearchQuery] = useState('');
-      const [diffFilter, setDynamicDiffFilter] = useState('ALL');
+      const [diffFilter, setDiffFilter] = useState('ALL');
+      const [selectedSegmen, setSelectedSegmen] = useState('ALL');
+      const [tableWilayahFilter, setTableWilayahFilter] = useState('ALL');
       const [histSortConfig, setHistSortConfig] = useState({ key: null, direction: 'asc' });
-      
-      const canvasHistRef = useRef(null);
-      const chartHistRef = useRef(null);
 
-      const filteredHistoricalData = useMemo(() => {
+      // Normalisasi status EFS bulanan
+      const getMonthlyStatus = (item, monthKey) => {
+        const m = monthKey.toLowerCase();
+        let st = (item.statusEfsMonthly && item.statusEfsMonthly[m])
+          ? item.statusEfsMonthly[m]
+          : (item.statusEfs || 'Active');
+        st = String(st).trim().toLowerCase();
+        if (st === 'actived') st = 'active';
+        return st;
+      };
+
+      // Filter data awal sesuai Droplist Utama (Grup, Wilayah, Unit)
+      const baseFilteredData = useMemo(() => {
         return data.filter(item => {
-          const sEfs = String(item.statusEfs || 'Active').trim().toLowerCase();
-          return sEfs === 'active' || sEfs === 'draft' || sEfs === 'in process';
-        });
-      }, [data]);
-
-      const monthlySummary = useMemo(() => {
-        return MONTHS.map((m) => {
-          let efsTot = 0;
-          let realTot = 0;
-
-          filteredHistoricalData.forEach(item => {
-            efsTot += getEfsValue(item, m);
-            realTot += getCumulativeRealisasiValue(item, m);
-          });
-
-          const pct = efsTot > 0 ? (realTot / efsTot) * 100 : 0;
-          return { month: m, alokasi: efsTot, realisasi: realTot, pct };
-        });
-      }, [filteredHistoricalData]);
-
-      useEffect(() => {
-        if (!canvasHistRef.current) return;
-        const ctx = canvasHistRef.current.getContext('2d');
-        if (chartHistRef.current) chartHistRef.current.destroy();
-
-        chartHistRef.current = new Chart(ctx, {
-          type: 'bar',
-          data: {
-            labels: monthlySummary.map(d => d.month),
-            datasets: [
-              {
-                type: 'line',
-                label: '% Realisasi vs EFS',
-                data: monthlySummary.map(d => d.pct),
-                borderColor: '#F15A24',
-                backgroundColor: '#F15A24',
-                borderWidth: 3,
-                yAxisID: 'y1',
-                tension: 0.3
-              },
-              {
-                type: 'bar',
-                label: 'Alokasi EFS Bulanan',
-                data: monthlySummary.map(d => d.alokasi),
-                backgroundColor: '#006666',
-                borderRadius: 4,
-                yAxisID: 'y'
-              },
-              {
-                type: 'bar',
-                label: 'Realisasi Kumulatif Bulanan',
-                data: monthlySummary.map(d => d.realisasi),
-                backgroundColor: '#0D9488',
-                borderRadius: 4,
-                yAxisID: 'y'
-              }
-            ]
-          },
-          options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            interaction: { mode: 'index', intersect: false },
-            scales: {
-              y: {
-                type: 'linear',
-                display: true,
-                position: 'left',
-                ticks: {
-                  callback: (val) => val >= 1e9 ? `${(val/1e9).toFixed(1)}M` : val >= 1e6 ? `${(val/1e6).toFixed(0)}Jt` : val
-                },
-                grid: { color: '#F1F5F9' }
-              },
-              y1: {
-                type: 'linear',
-                display: true,
-                position: 'right',
-                ticks: { callback: (val) => `${val.toFixed(0)}%` },
-                grid: { drawOnChartArea: false }
-              }
+          if (selectedGroup !== 'ALL') {
+            if (String(item.typeGroup || '').trim().toUpperCase() !== selectedGroup.toUpperCase()) {
+              return false;
             }
           }
+
+          if (selectedWilayah !== 'ALL') {
+            if (item.wilayah !== selectedWilayah) return false;
+          }
+
+          if (selectedUnit !== 'ALL') {
+            const entit = (item.entitas || '').trim();
+            let opUnit = (item.operatingUnit || '').trim().replace(/\s*-\s*/g, ' ');
+            const formatted = (entit && opUnit) ? `[${entit}] ${opUnit}` : opUnit;
+            if (formatted !== selectedUnit) return false;
+          }
+
+          return true;
         });
+      }, [data, selectedGroup, selectedWilayah, selectedUnit]);
 
-        return () => { if (chartHistRef.current) chartHistRef.current.destroy(); };
-      }, [monthlySummary]);
+      // Komparasi Baseline (m1: Active Only) vs Bulan B (m2)
+      const comparisonData = useMemo(() => {
+        return baseFilteredData.map(item => {
+          const st1 = getMonthlyStatus(item, m1);
+          const st2 = getMonthlyStatus(item, m2);
 
-      const handleHistSort = (key) => {
-        let direction = 'asc';
-        if (histSortConfig.key === key && histSortConfig.direction === 'asc') {
-          direction = 'desc';
-        }
-        setHistSortConfig({ key, direction });
-      };
+          const isActive1 = st1 === 'active';
+          const isActive2 = st2 === 'active';
 
-      const renderHistSortIcon = (columnKey) => {
-        if (histSortConfig.key !== columnKey) {
-          return <span className="ml-1 text-slate-300 hover:text-slate-500">↕</span>;
-        }
-        return histSortConfig.direction === 'asc' 
-          ? <span className="ml-1 text-bni-teal font-extrabold">▲</span> 
-          : <span className="ml-1 text-bni-teal font-extrabold">▼</span>;
-      };
+          const efs1 = isActive1 ? getEfsValue(item, m1) : 0;
+          const efs2 = isActive2 ? getEfsValue(item, m2) : 0;
 
-      const varianceData = useMemo(() => {
-        let list = filteredHistoricalData.map(item => {
-          const efs1 = getEfsValue(item, m1);
-          const efs2 = getEfsValue(item, m2);
+          const real1 = isActive1 ? getCumulativeRealisasiValue(item, m1) : 0;
+          const real2 = isActive2 ? getCumulativeRealisasiValue(item, m2) : 0;
+
+          const isNew = !isActive1 && isActive2;
+          const isRemoved = isActive1 && !isActive2;
+          const isExisting = isActive1 && isActive2;
+
+          if (!isActive1 && !isActive2) return null;
+
           const diffEfs = efs2 - efs1;
-
-          const real1 = getCumulativeRealisasiValue(item, m1);
-          const real2 = getCumulativeRealisasiValue(item, m2);
           const diffReal = real2 - real1;
 
           return {
             ...item,
+            mataAnggaran: item.kategori || 'Lainnya',
+            st1,
+            st2,
+            isActive1,
+            isActive2,
+            isNew,
+            isRemoved,
+            isExisting,
             efs1,
             efs2,
             diffEfs,
             real1,
             real2,
-            diffReal
+            diffReal,
+            isEfsIncrease: diffEfs > 0,
+            isRealIncrease: diffReal > 0
           };
+        }).filter(Boolean);
+      }, [baseFilteredData, m1, m2]);
+
+      // Daftar opsi unik untuk filter Wilayah & Mata Anggaran di tabel
+      const availableTableWilayah = useMemo(() => {
+        const setW = new Set();
+        comparisonData.forEach(item => {
+          if (item.wilayah) setW.add(item.wilayah);
+        });
+        return Array.from(setW).sort();
+      }, [comparisonData]);
+
+      const availableTableMataAnggaran = useMemo(() => {
+        const setM = new Set();
+        comparisonData.forEach(item => {
+          if (item.mataAnggaran) setM.add(item.mataAnggaran);
+        });
+        return Array.from(setM).sort();
+      }, [comparisonData]);
+
+      // Summary per Segmen Mata Anggaran
+      const segmentSummary = useMemo(() => {
+        const summary = {};
+
+        comparisonData.forEach(item => {
+          const seg = item.mataAnggaran;
+          if (!summary[seg]) {
+            summary[seg] = {
+              segmen: seg,
+              baselineCount: 0,
+              monthBCount: 0,
+              newProjects: 0,
+              removedProjects: 0,
+              tambahAlokasiVal: 0,
+              kurangAlokasiVal: 0,
+              netAlokasiDiff: 0,
+              tambahRealisasiVal: 0,
+              baselineAlokasi: 0,
+              monthBAlokasi: 0,
+              baselineRealisasi: 0,
+              monthBRealisasi: 0
+            };
+          }
+
+          if (item.isActive1) {
+            summary[seg].baselineCount += 1;
+            summary[seg].baselineAlokasi += item.efs1;
+            summary[seg].baselineRealisasi += item.real1;
+          }
+          if (item.isActive2) {
+            summary[seg].monthBCount += 1;
+            summary[seg].monthBAlokasi += item.efs2;
+            summary[seg].monthBRealisasi += item.real2;
+          }
+
+          if (item.isNew) summary[seg].newProjects += 1;
+          if (item.isRemoved) summary[seg].removedProjects += 1;
+
+          if (item.diffEfs > 0) summary[seg].tambahAlokasiVal += item.diffEfs;
+          if (item.diffEfs < 0) summary[seg].kurangAlokasiVal += Math.abs(item.diffEfs);
+          summary[seg].netAlokasiDiff += item.diffEfs;
+
+          if (item.diffReal > 0) summary[seg].tambahRealisasiVal += item.diffReal;
         });
 
-        list = list.filter(item => {
+        return Object.values(summary);
+      }, [comparisonData]);
+
+      // Filter & Sorting Tabel Detail
+      const filteredDetails = useMemo(() => {
+        let list = comparisonData.filter(item => {
+          if (selectedSegmen !== 'ALL' && item.mataAnggaran !== selectedSegmen) return false;
+          if (tableWilayahFilter !== 'ALL' && item.wilayah !== tableWilayahFilter) return false;
+
           if (searchQuery) {
             const q = searchQuery.toLowerCase();
             const matchName = (item.namaProject || '').toLowerCase().includes(q);
@@ -1293,20 +1317,18 @@ chartRightRef.current = new Chart(ctxRight, {
             if (!matchName && !matchNum && !matchWil) return false;
           }
 
-          if (diffFilter === 'CHANGED') return item.diffEfs !== 0 || item.diffReal !== 0;
-          if (diffFilter === 'INCREASED') return item.diffEfs > 0;
-          if (diffFilter === 'DECREASED') return item.diffEfs < 0;
+          if (diffFilter === 'NEW') return item.isNew;
+          if (diffFilter === 'REMOVED') return item.isRemoved;
+          if (diffFilter === 'ALLOC_INC') return item.isEfsIncrease;
+          if (diffFilter === 'REAL_INC') return item.isRealIncrease;
 
           return true;
         });
 
-        if (histSortConfig.key !== null) {
+        if (histSortConfig.key) {
           list.sort((a, b) => {
-            let aVal = a[histSortConfig.key];
-            let bVal = b[histSortConfig.key];
-
-            if (aVal === undefined || aVal === null) aVal = '';
-            if (bVal === undefined || bVal === null) bVal = '';
+            let aVal = a[histSortConfig.key] ?? '';
+            let bVal = b[histSortConfig.key] ?? '';
 
             if (typeof aVal === 'string') aVal = aVal.toLowerCase();
             if (typeof bVal === 'string') bVal = bVal.toLowerCase();
@@ -1318,346 +1340,552 @@ chartRightRef.current = new Chart(ctxRight, {
         }
 
         return list;
-      }, [filteredHistoricalData, m1, m2, searchQuery, diffFilter, histSortConfig]);
+      }, [comparisonData, selectedSegmen, tableWilayahFilter, searchQuery, diffFilter, histSortConfig]);
 
-      const varianceStats = useMemo(() => {
-        let totEfs1 = 0, totEfs2 = 0, totReal1 = 0, totReal2 = 0;
-        let changedCount = 0;
+      // Total KPI Net Changes
+      const overallKPI = useMemo(() => {
+        let newCount = 0;
+        let removedCount = 0;
+        let baselineActiveCount = 0;
+        let monthBActiveCount = 0;
 
-        varianceData.forEach(i => {
-          totEfs1 += i.efs1;
-          totEfs2 += i.efs2;
-          totReal1 += i.real1;
-          totReal2 += i.real2;
-          if (i.diffEfs !== 0) changedCount++;
+        let totalAlloc1 = 0;
+        let totalAlloc2 = 0;
+        let allocIncTotal = 0;
+        let allocDecTotal = 0;
+
+        let totalReal1 = 0;
+        let totalReal2 = 0;
+        let realIncTotal = 0;
+        let realDecTotal = 0;
+
+        comparisonData.forEach(i => {
+          if (i.isActive1) {
+            baselineActiveCount++;
+            totalAlloc1 += i.efs1;
+            totalReal1 += i.real1;
+          }
+          if (i.isActive2) {
+            monthBActiveCount++;
+            totalAlloc2 += i.efs2;
+            totalReal2 += i.real2;
+          }
+
+          if (i.isNew) newCount++;
+          if (i.isRemoved) removedCount++;
+
+          if (i.diffEfs > 0) allocIncTotal += i.diffEfs;
+          if (i.diffEfs < 0) allocDecTotal += Math.abs(i.diffEfs);
+
+          if (i.diffReal > 0) realIncTotal += i.diffReal;
+          if (i.diffReal < 0) realDecTotal += Math.abs(i.diffReal);
         });
 
+        const netProjectDiff = monthBActiveCount - baselineActiveCount;
+        const netAllocDiff = totalAlloc2 - totalAlloc1;
+        const netRealDiff = totalReal2 - totalReal1;
+
         return {
-          totEfs1, totEfs2, diffEfs: totEfs2 - totEfs1,
-          totReal1, totReal2, diffReal: totReal2 - totReal1,
-          changedCount
+          baselineActiveCount,
+          monthBActiveCount,
+          newCount,
+          removedCount,
+          netProjectDiff,
+          totalAlloc1,
+          totalAlloc2,
+          allocIncTotal,
+          allocDecTotal,
+          netAllocDiff,
+          totalReal1,
+          totalReal2,
+          realIncTotal,
+          realDecTotal,
+          netRealDiff
         };
-      }, [varianceData]);
+      }, [comparisonData]);
+
+      const formatSignedCompact = (val) => {
+        if (!val || val === 0) return 'Rp 0,00';
+        const sign = val > 0 ? '+' : '-';
+        return `${sign}${formatCompactIDR(Math.abs(val))}`;
+      };
+
+      const handleHistSort = (key) => {
+        let direction = 'asc';
+        if (histSortConfig.key === key && histSortConfig.direction === 'asc') direction = 'desc';
+        setHistSortConfig({ key, direction });
+      };
 
       const exportHistToExcel = () => {
-        const rows = varianceData.map((row, index) => ({
+        const rows = filteredDetails.map((row, index) => ({
           "No": index + 1,
+          "Mata Anggaran": row.mataAnggaran || '-',
           "Project Number": row.projectNumber || '-',
           "Nama Project": row.namaProject || '-',
           "Wilayah": row.wilayah || '-',
           "Operating Unit": row.operatingUnit || '-',
-          [`Alokasi EFS (${m1})`]: row.efs1,
-          [`Alokasi EFS (${m2})`]: row.efs2,
-          "Selisih EFS": row.diffEfs,
+          "Status Komparasi": row.isNew ? "Project Baru" : row.isRemoved ? "Project Berkurang" : "Eksisting",
+          [`Alokasi (${m1} - Baseline)`]: row.efs1,
+          [`Alokasi (${m2})`]: row.efs2,
+          "Selisih Alokasi": row.diffEfs,
           [`Realisasi (${m1})`]: row.real1,
           [`Realisasi (${m2})`]: row.real2,
           "Selisih Realisasi": row.diffReal
         }));
 
-        const worksheet = XLSX.utils.json_to_sheet(rows);
-        const workbook = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(workbook, worksheet, "Historical_Variance");
-        XLSX.writeFile(workbook, `Report_Historical_Variance_${m1}_vs_${m2}.xlsx`);
+        const ws = XLSX.utils.json_to_sheet(rows);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Baseline_vs_BulanB");
+        XLSX.writeFile(wb, `Komparasi_CAPEX_${m1}_vs_${m2}.xlsx`);
       };
 
-      const exportHistToPDF = () => {
-        const { jsPDF } = window.jspdf;
-        const doc = new jsPDF('l', 'mm', 'a4');
-
-        doc.setFontSize(14);
-        doc.text(`Laporan Historical & Variance Analysis (${m1} vs ${m2})`, 14, 15);
-        doc.setFontSize(9);
-        doc.text(`Tanggal Cetak: ${new Date().toLocaleDateString('id-ID')}`, 14, 21);
-
-        const tableColumn = ["No", "Project Number", "Nama Project", "Wilayah", `EFS (${m1})`, `EFS (${m2})`, "Selisih EFS", `Real (${m1})`, `Real (${m2})`, "Selisih Real"];
-        const tableRows = varianceData.map((row, index) => [
-          index + 1,
-          row.projectNumber || '-',
-          row.namaProject || '-',
-          row.wilayah || '-',
-          formatCompactIDR(row.efs1),
-          formatCompactIDR(row.efs2),
-          formatCompactIDR(row.diffEfs),
-          formatCompactIDR(row.real1),
-          formatCompactIDR(row.real2),
-          formatCompactIDR(row.diffReal)
-        ]);
-
-        doc.autoTable({
-          head: [tableColumn],
-          body: tableRows,
-          startY: 25,
-          styles: { fontSize: 8, cellPadding: 2 },
-          headStyles: { fillColor: [0, 102, 102], textColor: 255, fontStyle: 'bold' },
-          alternateRowStyles: { fillColor: [245, 247, 250] }
-        });
-
-        doc.save(`Report_Historical_Variance_${m1}_vs_${m2}.pdf`);
+      const resetTableFilters = () => {
+        setSearchQuery('');
+        setDiffFilter('ALL');
+        setSelectedSegmen('ALL');
+        setTableWilayahFilter('ALL');
+        setHistSortConfig({ key: null, direction: 'asc' });
       };
 
       return (
         <div className="space-y-6 animate-fadeIn">
-          <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm space-y-3">
-            <div className="flex items-center justify-between border-b pb-3 border-slate-100">
-              <div>
-                <h4 className="font-extrabold text-slate-800 text-sm flex items-center space-x-2">
-                  <i data-lucide="line-chart" className="w-4 h-4 text-bni-teal"></i>
-                  <span>Tren Historical Alokasi EFS vs Realisasi Kumulatif Bulanan</span>
-                </h4>
-                <p className="text-xs text-slate-400">Monitoring pergerakan dinamis alokasi anggaran investasi dan tingkat penyerapan per bulan</p>
-              </div>
-              <span className="text-[10px] font-bold text-bni-teal bg-bni-teal-subtle px-2.5 py-1 rounded-full">Jan - Des 2026</span>
+          {/* Header Kontrol Pemilihan Bulan */}
+          <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <h4 className="font-extrabold text-slate-800 text-sm flex items-center space-x-2">
+                <i data-lucide="git-compare" className="w-4 h-4 text-bni-orange"></i>
+                <span>Komparasi Data Bulan A (Baseline: Active) vs Data Bulan B</span>
+              </h4>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Monitoring pergerakan proyek baru, berkurang, alokasi, dan penyerapan realisasi
+              </p>
             </div>
 
-            <div className="h-72 w-full relative">
-              <canvas ref={canvasHistRef}></canvas>
+            <div className="flex items-center space-x-3 bg-slate-50 p-2 rounded-xl border border-slate-200">
+              <div className="flex items-center space-x-1.5">
+                <span className="text-xs font-bold text-slate-500">Baseline (A):</span>
+                <select 
+                  value={m1} 
+                  onChange={e => setM1(e.target.value)}
+                  className="bg-white font-extrabold text-xs text-bni-teal py-1 px-2.5 rounded-lg border border-slate-200 shadow-xs cursor-pointer focus:outline-none"
+                >
+                  {MONTHS.map(m => <option key={m} value={m}>{m} 2026</option>)}
+                </select>
+              </div>
+
+              <span className="text-slate-400 font-bold">vs</span>
+
+              <div className="flex items-center space-x-1.5">
+                <span className="text-xs font-bold text-slate-500">Bulan B:</span>
+                <select 
+                  value={m2} 
+                  onChange={e => setM2(e.target.value)}
+                  className="bg-white font-extrabold text-xs text-bni-orange py-1 px-2.5 rounded-lg border border-slate-200 shadow-xs cursor-pointer focus:outline-none"
+                >
+                  {MONTHS.map(m => <option key={m} value={m}>{m} 2026</option>)}
+                </select>
+              </div>
             </div>
           </div>
 
-          <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm flex flex-col overflow-hidden max-h-[650px]">
-            <div className="p-5 border-b border-slate-100 flex flex-wrap items-center justify-between gap-4 bg-slate-50/50">
-              <div>
-                <h4 className="font-extrabold text-slate-800 text-sm flex items-center space-x-2">
-                  <i data-lucide="git-compare" className="w-4 h-4 text-bni-orange"></i>
-                  <span>Perbandingan & Rincian Perubahan Alokasi EFS Per Bulan</span>
-                </h4>
-                <p className="text-xs text-slate-400">Lakukan komparasi pergerakan alokasi & realisasi proyek antar dua bulan pilihan</p>
+          {/* 3 Executive Net Changes KPI Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+            {/* 1. Net Perubahan Total Proyek */}
+            <div className="bg-gradient-to-br from-white via-white to-slate-50/70 p-5 rounded-2xl border border-slate-200/90 shadow-sm hover:shadow-md transition-all relative overflow-hidden group">
+              <div className={`absolute top-0 left-0 right-0 h-1 ${overallKPI.netProjectDiff >= 0 ? 'bg-emerald-500' : 'bg-rose-500'}`}></div>
+              
+              <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                <span className="text-[11px] font-black text-slate-500 uppercase tracking-wider flex items-center space-x-1.5">
+                  <span className="w-2 h-2 rounded-full bg-slate-400"></span>
+                  <span>Net Perubahan Proyek</span>
+                </span>
+                <span className={`text-[10px] font-extrabold px-2.5 py-0.5 rounded-full flex items-center space-x-1 ${
+                  overallKPI.netProjectDiff >= 0 ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-700 border border-rose-200'
+                }`}>
+                  <span>{overallKPI.netProjectDiff >= 0 ? '▲ Positif' : '▼ Berkurang'}</span>
+                </span>
               </div>
 
-              <div className="flex items-center space-x-3 bg-white p-1.5 rounded-xl border border-slate-200 shadow-sm">
-                <div className="flex items-center space-x-1.5">
-                  <span className="text-xs font-bold text-slate-500 pl-1">Bulan A:</span>
-                  <select 
-                    value={m1} 
-                    onChange={e => setM1(e.target.value)}
-                    className="bg-slate-100 font-bold text-xs text-slate-700 py-1 px-2 rounded-lg border-none focus:outline-none cursor-pointer"
-                  >
-                    {MONTHS.map(m => <option key={m} value={m}>{m}</option>)}
-                  </select>
+              <div className="mt-3 flex items-baseline space-x-2">
+                <h3 className={`text-3xl font-black tracking-tight ${overallKPI.netProjectDiff >= 0 ? 'text-emerald-700' : 'text-rose-600'}`}>
+                  {overallKPI.netProjectDiff >= 0 ? `+${overallKPI.netProjectDiff}` : overallKPI.netProjectDiff}
+                </h3>
+                <span className="text-xs font-bold text-slate-500">Proyek Aktif</span>
+              </div>
+
+              <div className="mt-3 pt-3 border-t border-slate-100 grid grid-cols-2 gap-2 text-[11px]">
+                <div className="bg-emerald-50/60 rounded-xl p-2 border border-emerald-100/70">
+                  <span className="text-[10px] text-slate-400 block font-semibold uppercase">Proyek Baru</span>
+                  <span className="font-extrabold text-emerald-700">+{overallKPI.newCount}</span>
                 </div>
-
-                <i data-lucide="arrow-right" className="w-4 h-4 text-slate-400"></i>
-
-                <div className="flex items-center space-x-1.5">
-                  <span className="text-xs font-bold text-slate-500">Bulan B:</span>
-                  <select 
-                    value={m2} 
-                    onChange={e => setM2(e.target.value)}
-                    className="bg-slate-100 font-bold text-xs text-slate-700 py-1 px-2 rounded-lg border-none focus:outline-none cursor-pointer"
-                  >
-                    {MONTHS.map(m => <option key={m} value={m}>{m}</option>)}
-                  </select>
+                <div className="bg-rose-50/60 rounded-xl p-2 border border-rose-100/70">
+                  <span className="text-[10px] text-slate-400 block font-semibold uppercase">Berkurang</span>
+                  <span className="font-extrabold text-rose-600">-{overallKPI.removedCount}</span>
                 </div>
               </div>
+              <p className="text-[10px] text-slate-400 mt-2 text-right">
+                {m1}: <b className="text-slate-600">{overallKPI.baselineActiveCount}</b> ➔ {m2}: <b className="text-slate-600">{overallKPI.monthBActiveCount}</b>
+              </p>
             </div>
 
-            <div className="p-5 grid grid-cols-1 md:grid-cols-3 gap-4 bg-slate-100/40 border-b border-slate-100">
-              <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm">
-                <span className="text-[10px] font-bold text-slate-400 uppercase block">Total Alokasi EFS ({m1} vs {m2})</span>
-                <div className="flex items-baseline space-x-2 mt-1">
-                  <span className="text-lg font-black text-slate-800">{formatCompactIDR(varianceStats.totEfs2)}</span>
-                  <span className={`text-xs font-extrabold ${varianceStats.diffEfs >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                    ({varianceStats.diffEfs >= 0 ? '+' : ''}{formatCompactIDR(varianceStats.diffEfs)})
-                  </span>
-                </div>
-                <span className="text-[10px] text-slate-400 block mt-0.5">Semula {m1}: {formatCompactIDR(varianceStats.totEfs1)}</span>
+            {/* 2. Net Perubahan Alokasi */}
+            <div className="bg-gradient-to-br from-white via-white to-blue-50/30 p-5 rounded-2xl border border-slate-200/90 shadow-sm hover:shadow-md transition-all relative overflow-hidden group">
+              <div className={`absolute top-0 left-0 right-0 h-1 ${overallKPI.netAllocDiff >= 0 ? 'bg-bni-teal' : 'bg-rose-500'}`}></div>
+
+              <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                <span className="text-[11px] font-black text-slate-500 uppercase tracking-wider flex items-center space-x-1.5">
+                  <span className="w-2 h-2 rounded-full bg-blue-500"></span>
+                  <span>Net Perubahan Alokasi</span>
+                </span>
+                <span className={`text-[10px] font-extrabold px-2.5 py-0.5 rounded-full ${
+                  overallKPI.netAllocDiff >= 0 ? 'bg-teal-50 text-teal-800 border border-teal-200' : 'bg-rose-50 text-rose-700 border border-rose-200'
+                }`}>
+                  {overallKPI.netAllocDiff >= 0 ? '▲ Net Tambah' : '▼ Net Turun'}
+                </span>
               </div>
 
-              <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm">
-                <span className="text-[10px] font-bold text-slate-400 uppercase block">Total Realisasi Kumulatif ({m1} vs {m2})</span>
-                <div className="flex items-baseline space-x-2 mt-1">
-                  <span className="text-lg font-black text-bni-orange">{formatCompactIDR(varianceStats.totReal2)}</span>
-                  <span className={`text-xs font-extrabold ${varianceStats.diffReal >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                    ({varianceStats.diffReal >= 0 ? '+' : ''}{formatCompactIDR(varianceStats.diffReal)})
-                  </span>
-                </div>
-                <span className="text-[10px] text-slate-400 block mt-0.5">Semula {m1}: {formatCompactIDR(varianceStats.totReal1)}</span>
+              <div className="mt-3 flex items-baseline space-x-2">
+                <h3 
+                  className={`text-3xl font-black tracking-tight cursor-help transition-opacity hover:opacity-80 ${overallKPI.netAllocDiff >= 0 ? 'text-bni-teal' : 'text-rose-600'}`}
+                  title={`Net Perubahan Alokasi: ${formatIDR(overallKPI.netAllocDiff)}`}
+                >
+                  {formatSignedCompact(overallKPI.netAllocDiff)}
+                </h3>
               </div>
 
-              <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between">
-                <span className="text-[10px] font-bold text-slate-400 uppercase block">Proyek Mengalami Penyesuaian</span>
-                <div className="flex items-center justify-between mt-1">
-                  <span className="text-xl font-black text-bni-teal">{varianceStats.changedCount} Project</span>
-                  <span className="text-[10px] font-bold bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full">Revisi EFS</span>
+              <div className="mt-3 pt-3 border-t border-slate-100 grid grid-cols-2 gap-2 text-[11px]">
+                <div 
+                  className="bg-blue-50/50 rounded-xl p-2 border border-blue-100/70 cursor-help"
+                  title={`Total Penambahan Alokasi: ${formatIDR(overallKPI.allocIncTotal)}`}
+                >
+                  <span className="text-[10px] text-slate-400 block font-semibold uppercase">Total Penambahan</span>
+                  <span className="font-extrabold text-blue-700">+{formatCompactIDR(overallKPI.allocIncTotal)}</span>
                 </div>
-                <span className="text-[10px] text-slate-400 block">EFS {m1} vs {m2}</span>
+                <div 
+                  className="bg-slate-50 rounded-xl p-2 border border-slate-200/70 cursor-help"
+                  title={`Total Penurunan Alokasi: ${formatIDR(-overallKPI.allocDecTotal)}`}
+                >
+                  <span className="text-[10px] text-slate-400 block font-semibold uppercase">Total Penurunan</span>
+                  <span className="font-extrabold text-slate-600">-{formatCompactIDR(overallKPI.allocDecTotal)}</span>
+                </div>
               </div>
+              <p className="text-[10px] text-slate-400 mt-2 text-right">
+                Pagu {m1}: <b className="text-slate-600 cursor-help" title={formatIDR(overallKPI.totalAlloc1)}>{formatCompactIDR(overallKPI.totalAlloc1)}</b> ➔ {m2}: <b className="text-slate-600 cursor-help" title={formatIDR(overallKPI.totalAlloc2)}>{formatCompactIDR(overallKPI.totalAlloc2)}</b>
+              </p>
             </div>
 
-            <div className="p-3 bg-white border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
-              <div className="relative min-w-[220px]">
-                <i data-lucide="search" className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5"></i>
-                <input 
-                  type="text" 
-                  placeholder="Cari Proyek / Wilayah..." 
-                  value={searchQuery}
-                  onChange={e => setSearchQuery(e.target.value)}
-                  className="w-full pl-8 pr-3 py-1 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium focus:outline-none focus:border-bni-teal"
-                />
+            {/* 3. Net Perubahan Realisasi */}
+            <div className="bg-gradient-to-br from-white via-white to-orange-50/30 p-5 rounded-2xl border border-slate-200/90 shadow-sm hover:shadow-md transition-all relative overflow-hidden group">
+              <div className="absolute top-0 left-0 right-0 h-1 bg-bni-orange"></div>
+
+              <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                <span className="text-[11px] font-black text-slate-500 uppercase tracking-wider flex items-center space-x-1.5">
+                  <span className="w-2 h-2 rounded-full bg-bni-orange"></span>
+                  <span>Net Perubahan Realisasi</span>
+                </span>
+                <span className="text-[10px] font-extrabold px-2.5 py-0.5 rounded-full bg-orange-50 text-bni-orange border border-orange-200">
+                  {overallKPI.netRealDiff >= 0 ? '▲ Pertumbuhan' : '▼ Penurunan'}
+                </span>
+              </div>
+
+              <div className="mt-3 flex items-baseline space-x-2">
+                <h3 
+                  className="text-3xl font-black tracking-tight text-bni-orange cursor-help transition-opacity hover:opacity-80"
+                  title={`Net Perubahan Realisasi: ${formatIDR(overallKPI.netRealDiff)}`}
+                >
+                  {formatSignedCompact(overallKPI.netRealDiff)}
+                </h3>
+              </div>
+
+              <div className="mt-3 pt-3 border-t border-slate-100 grid grid-cols-2 gap-2 text-[11px]">
+                <div 
+                  className="bg-orange-50/50 rounded-xl p-2 border border-orange-100/70 cursor-help"
+                  title={`Realisasi Tambahan: ${formatIDR(overallKPI.realIncTotal)}`}
+                >
+                  <span className="text-[10px] text-slate-400 block font-semibold uppercase">Realisasi Tambahan</span>
+                  <span className="font-extrabold text-bni-orange">+{formatCompactIDR(overallKPI.realIncTotal)}</span>
+                </div>
+                <div 
+                  className="bg-slate-50 rounded-xl p-2 border border-slate-200/70 cursor-help"
+                  title={`Penyerapan Kumulatif (${m2}): ${formatIDR(overallKPI.totalReal2)}`}
+                >
+                  <span className="text-[10px] text-slate-400 block font-semibold uppercase">Penyerapan ({m2})</span>
+                  <span className="font-extrabold text-slate-700">{formatCompactIDR(overallKPI.totalReal2)}</span>
+                </div>
+              </div>
+              <p className="text-[10px] text-slate-400 mt-2 text-right">
+                Kumulatif {m1}: <b className="text-slate-600 cursor-help" title={formatIDR(overallKPI.totalReal1)}>{formatCompactIDR(overallKPI.totalReal1)}</b> ➔ {m2}: <b className="text-slate-600 cursor-help" title={formatIDR(overallKPI.totalReal2)}>{formatCompactIDR(overallKPI.totalReal2)}</b>
+              </p>
+            </div>
+          </div>
+
+          {/* Rangkuman Komparasi per Segmen Mata Anggaran */}
+          <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm space-y-4">
+            <div className="flex items-center justify-between border-b pb-3 border-slate-100">
+              <h4 className="font-extrabold text-slate-800 text-sm flex items-center space-x-2">
+                <i data-lucide="layers" className="w-4 h-4 text-bni-teal"></i>
+                <span>Rangkuman Komparasi per Segmen Mata Anggaran</span>
+              </h4>
+              <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">
+                Klik baris untuk memfilter rincian
+              </span>
+            </div>
+
+            <div className="overflow-x-auto custom-scrollbar">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead className="bg-[#004d4d] text-white font-extrabold uppercase text-[9px]">
+                  <tr>
+                    <th className="py-2.5 px-3 border border-teal-800">Segmen Mata Anggaran</th>
+                    <th className="py-2.5 px-3 border border-teal-800 text-center">Baseline ({m1})</th>
+                    <th className="py-2.5 px-3 border border-teal-800 text-center">Bulan B ({m2})</th>
+                    <th className="py-2.5 px-3 border border-teal-800 text-center text-emerald-300">Project Baru</th>
+                    <th className="py-2.5 px-3 border border-teal-800 text-center text-rose-300">Project Berkurang</th>
+                    <th className="py-2.5 px-3 border border-teal-800 text-right text-blue-200">+ Alokasi EFS</th>
+                    <th className="py-2.5 px-3 border border-teal-800 text-right">Net Selisih Alokasi</th>
+                    <th className="py-2.5 px-3 border border-teal-800 text-right text-amber-200">+ Realisasi</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-slate-700">
+                  {segmentSummary.length === 0 ? (
+                    <tr>
+                      <td colSpan="8" className="py-6 text-center text-slate-400">
+                        Tidak ada data sesuai pilihan filter grup / wilayah.
+                      </td>
+                    </tr>
+                  ) : (
+                    segmentSummary.map((seg, idx) => {
+                      const isSelected = selectedSegmen === seg.segmen;
+                      return (
+                        <tr 
+                          key={idx}
+                          onClick={() => setSelectedSegmen(isSelected ? 'ALL' : seg.segmen)}
+                          className={`cursor-pointer transition-colors ${
+                            isSelected ? 'bg-teal-50 font-bold' : idx % 2 === 0 ? 'bg-white hover:bg-slate-50' : 'bg-slate-50/50 hover:bg-slate-100'
+                          }`}
+                        >
+                          <td className="py-2.5 px-3 font-bold flex items-center space-x-2">
+                            <span className={`w-2 h-2 rounded-full ${isSelected ? 'bg-bni-teal' : 'bg-slate-300'}`}></span>
+                            <span>{seg.segmen}</span>
+                          </td>
+                          <td className="py-2.5 px-3 text-center">{seg.baselineCount} Proyek</td>
+                          <td className="py-2.5 px-3 text-center font-bold">{seg.monthBCount} Proyek</td>
+                          <td className="py-2.5 px-3 text-center text-emerald-700 font-extrabold">
+                            {seg.newProjects > 0 ? `+${seg.newProjects}` : '-'}
+                          </td>
+                          <td className="py-2.5 px-3 text-center text-rose-700 font-extrabold">
+                            {seg.removedProjects > 0 ? `-${seg.removedProjects}` : '-'}
+                          </td>
+                          <td className="py-2.5 px-3 text-right font-semibold text-blue-700 cursor-help" title={formatIDR(seg.tambahAlokasiVal)}>
+                            {seg.tambahAlokasiVal > 0 ? `+${formatSlimIDR(seg.tambahAlokasiVal)}` : '-'}
+                          </td>
+                          <td className="py-2.5 px-3 text-right font-extrabold cursor-help" title={formatIDR(seg.netAlokasiDiff)}>
+                            <span className={seg.netAlokasiDiff >= 0 ? 'text-emerald-700' : 'text-rose-700'}>
+                              {seg.netAlokasiDiff > 0 ? '+' : ''}{formatSlimIDR(seg.netAlokasiDiff)}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-3 text-right font-black text-bni-orange cursor-help" title={formatIDR(seg.tambahRealisasiVal)}>
+                            {seg.tambahRealisasiVal > 0 ? `+${formatSlimIDR(seg.tambahRealisasiVal)}` : '-'}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Rincian Komparasi Project */}
+          <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm flex flex-col overflow-hidden">
+            <div className="p-4 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3 bg-slate-50/50">
+              <div className="flex items-center space-x-2">
+                <h5 className="font-extrabold text-slate-800 text-sm">Rincian Komparasi Proyek</h5>
+                <span className="text-xs bg-slate-200 text-slate-700 font-bold px-2 py-0.5 rounded-full">
+                  {filteredDetails.length} Proyek
+                </span>
+                {selectedSegmen !== 'ALL' && (
+                  <span className="text-xs bg-teal-100 text-teal-800 font-bold px-2 py-0.5 rounded-full">
+                    Segmen: {selectedSegmen}
+                  </span>
+                )}
+                {tableWilayahFilter !== 'ALL' && (
+                  <span className="text-xs bg-indigo-100 text-indigo-800 font-bold px-2 py-0.5 rounded-full">
+                    Wilayah: {tableWilayahFilter}
+                  </span>
+                )}
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
-                <span className="text-xs font-bold text-slate-400 mr-1">Filter Perubahan:</span>
-                <button 
-                  onClick={() => setDynamicDiffFilter('ALL')}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${diffFilter === 'ALL' ? 'bg-bni-teal text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
-                >
-                  Semua
-                </button>
-                <button 
-                  onClick={() => setDynamicDiffFilter('CHANGED')}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${diffFilter === 'CHANGED' ? 'bg-bni-orange text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
-                >
-                  Berubah
-                </button>
-                <button 
-                  onClick={() => setDynamicDiffFilter('INCREASED')}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${diffFilter === 'INCREASED' ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
-                >
-                  Naik
-                </button>
-                <button 
-                  onClick={() => setDynamicDiffFilter('DECREASED')}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${diffFilter === 'DECREASED' ? 'bg-rose-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
-                >
-                  Turun
-                </button>
+                {/* Search Bar */}
+                <div className="relative min-w-[180px]">
+                  <i data-lucide="search" className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5"></i>
+                  <input 
+                    type="text" 
+                    placeholder="Cari Proyek..." 
+                    value={searchQuery}
+                    onChange={e => setSearchQuery(e.target.value)}
+                    className="w-full pl-8 pr-3 py-1 bg-white border border-slate-200 rounded-lg text-xs font-medium focus:outline-none focus:border-bni-teal shadow-xs"
+                  />
+                </div>
 
-                <div className="h-4 w-[1px] bg-slate-200 mx-1"></div>
+                {/* Filter Wilayah */}
+                <div className="flex items-center bg-white border border-slate-200 rounded-lg px-2 py-1 shadow-xs">
+                  <span className="text-[10px] font-bold text-slate-400 mr-1.5">Wilayah:</span>
+                  <select 
+                    value={tableWilayahFilter} 
+                    onChange={e => setTableWilayahFilter(e.target.value)}
+                    className="bg-transparent text-slate-700 font-bold text-xs border-none focus:outline-none cursor-pointer max-w-[110px] truncate"
+                  >
+                    <option value="ALL">Semua</option>
+                    {availableTableWilayah.map(w => (
+                      <option key={w} value={w}>{w}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Filter Mata Anggaran */}
+                <div className="flex items-center bg-white border border-slate-200 rounded-lg px-2 py-1 shadow-xs">
+                  <span className="text-[10px] font-bold text-slate-400 mr-1.5">Mata Anggaran:</span>
+                  <select 
+                    value={selectedSegmen} 
+                    onChange={e => setSelectedSegmen(e.target.value)}
+                    className="bg-transparent text-slate-700 font-bold text-xs border-none focus:outline-none cursor-pointer max-w-[140px] truncate"
+                  >
+                    <option value="ALL">Semua Segmen</option>
+                    {availableTableMataAnggaran.map(ma => (
+                      <option key={ma} value={ma}>{ma}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Filter Status Komparasi */}
+                <div className="flex items-center space-x-1">
+                  <button 
+                    onClick={() => setDiffFilter('ALL')}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${diffFilter === 'ALL' ? 'bg-bni-teal text-white shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                  >
+                    Semua
+                  </button>
+                  <button 
+                    onClick={() => setDiffFilter('NEW')}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${diffFilter === 'NEW' ? 'bg-emerald-600 text-white shadow-xs' : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'}`}
+                  >
+                    Proyek Baru
+                  </button>
+                  <button 
+                    onClick={() => setDiffFilter('REMOVED')}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${diffFilter === 'REMOVED' ? 'bg-rose-600 text-white shadow-xs' : 'bg-rose-50 text-rose-700 hover:bg-rose-100'}`}
+                  >
+                    Berkurang
+                  </button>
+                  <button 
+                    onClick={() => setDiffFilter('ALLOC_INC')}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${diffFilter === 'ALLOC_INC' ? 'bg-blue-600 text-white shadow-xs' : 'bg-blue-50 text-blue-700 hover:bg-blue-100'}`}
+                  >
+                    + Alokasi
+                  </button>
+                  <button 
+                    onClick={() => setDiffFilter('REAL_INC')}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${diffFilter === 'REAL_INC' ? 'bg-orange-600 text-white shadow-xs' : 'bg-orange-50 text-bni-orange hover:bg-orange-100'}`}
+                  >
+                    + Realisasi
+                  </button>
+                </div>
+
+                {/* Tombol Reset Filter */}
+                {(searchQuery || diffFilter !== 'ALL' || selectedSegmen !== 'ALL' || tableWilayahFilter !== 'ALL') && (
+                  <button 
+                    onClick={resetTableFilters}
+                    className="text-xs font-bold text-rose-600 hover:text-rose-800 bg-rose-50 hover:bg-rose-100 px-2 py-1 rounded-lg transition-all flex items-center space-x-1"
+                    title="Reset Filter Tabel"
+                  >
+                    <i data-lucide="rotate-ccw" className="w-3 h-3"></i>
+                    <span>Reset</span>
+                  </button>
+                )}
 
                 <button 
                   onClick={exportHistToExcel}
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center space-x-1 shadow-sm"
-                  title="Export Data ke Excel"
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white px-2.5 py-1 rounded-lg text-xs font-bold flex items-center space-x-1 shadow-xs"
                 >
                   <i data-lucide="file-spreadsheet" className="w-3.5 h-3.5"></i>
                   <span>Excel</span>
                 </button>
-
-                <button 
-                  onClick={exportHistToPDF}
-                  className="bg-rose-600 hover:bg-rose-700 text-white px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center space-x-1 shadow-sm"
-                  title="Export Data ke PDF"
-                >
-                  <i data-lucide="file-text" className="w-3.5 h-3.5"></i>
-                  <span>PDF</span>
-                </button>
               </div>
             </div>
 
-            <div className="overflow-x-auto overflow-y-auto custom-scrollbar flex-1">
+            <div className="overflow-x-auto max-h-[500px] custom-scrollbar">
               <table className="w-full text-left text-xs text-slate-600">
-                <thead className="bg-slate-50 text-slate-500 font-extrabold uppercase text-[9px] tracking-wider border-b border-slate-200 sticky top-0 z-10 select-none shadow-sm">
+                <thead className="bg-slate-100 text-slate-600 font-extrabold uppercase text-[9px] sticky top-0 border-b border-slate-200 select-none">
                   <tr>
                     <th className="py-2.5 px-2 text-center w-10">No</th>
-                    
-                    <th onClick={() => handleHistSort('namaProject')} className="py-2.5 px-3 cursor-pointer hover:bg-slate-100 transition-colors">
-                      <div className="flex items-center space-x-1">
-                        <span>Project Number & Nama Project</span>
-                        {renderHistSortIcon('namaProject')}
-                      </div>
-                    </th>
-
-                    <th onClick={() => handleHistSort('wilayah')} className="py-2.5 px-3 cursor-pointer hover:bg-slate-100 transition-colors">
-                      <div className="flex items-center space-x-1">
-                        <span>Wilayah / Unit</span>
-                        {renderHistSortIcon('wilayah')}
-                      </div>
-                    </th>
-
-                    <th onClick={() => handleHistSort('efs1')} className="py-2.5 px-3 text-right cursor-pointer hover:bg-slate-100 transition-colors">
-                      <div className="flex items-center justify-end space-x-1">
-                        <span>Alokasi EFS ({m1})</span>
-                        {renderHistSortIcon('efs1')}
-                      </div>
-                    </th>
-
-                    <th onClick={() => handleHistSort('efs2')} className="py-2.5 px-3 text-right cursor-pointer hover:bg-slate-100 transition-colors">
-                      <div className="flex items-center justify-end space-x-1">
-                        <span>Alokasi EFS ({m2})</span>
-                        {renderHistSortIcon('efs2')}
-                      </div>
-                    </th>
-
-                    <th onClick={() => handleHistSort('diffEfs')} className="py-2.5 px-3 text-right bg-amber-50/80 cursor-pointer hover:bg-amber-100 transition-colors">
-                      <div className="flex items-center justify-end space-x-1">
-                        <span>Selisih EFS</span>
-                        {renderHistSortIcon('diffEfs')}
-                      </div>
-                    </th>
-
-                    <th onClick={() => handleHistSort('real1')} className="py-2.5 px-3 text-right cursor-pointer hover:bg-slate-100 transition-colors">
-                      <div className="flex items-center justify-end space-x-1">
-                        <span>Realisasi Kum. ({m1})</span>
-                        {renderHistSortIcon('real1')}
-                      </div>
-                    </th>
-
-                    <th onClick={() => handleHistSort('real2')} className="py-2.5 px-3 text-right cursor-pointer hover:bg-slate-100 transition-colors">
-                      <div className="flex items-center justify-end space-x-1">
-                        <span>Realisasi Kum. ({m2})</span>
-                        {renderHistSortIcon('real2')}
-                      </div>
-                    </th>
-
-                    <th onClick={() => handleHistSort('diffReal')} className="py-2.5 px-3 text-right bg-orange-50/80 cursor-pointer hover:bg-orange-100 transition-colors">
-                      <div className="flex items-center justify-end space-x-1">
-                        <span>Selisih Realisasi</span>
-                        {renderHistSortIcon('diffReal')}
-                      </div>
-                    </th>
+                    <th className="py-2.5 px-3">Status Komparasi</th>
+                    <th onClick={() => handleHistSort('namaProject')} className="py-2.5 px-3 cursor-pointer hover:bg-slate-200">Project Number & Nama Project</th>
+                    <th onClick={() => handleHistSort('mataAnggaran')} className="py-2.5 px-3 cursor-pointer hover:bg-slate-200">Mata Anggaran</th>
+                    <th onClick={() => handleHistSort('wilayah')} className="py-2.5 px-3 cursor-pointer hover:bg-slate-200">Wilayah / Unit</th>
+                    <th onClick={() => handleHistSort('efs1')} className="py-2.5 px-3 text-right cursor-pointer hover:bg-slate-200">Alokasi ({m1})</th>
+                    <th onClick={() => handleHistSort('efs2')} className="py-2.5 px-3 text-right cursor-pointer hover:bg-slate-200">Alokasi ({m2})</th>
+                    <th onClick={() => handleHistSort('diffEfs')} className="py-2.5 px-3 text-right cursor-pointer hover:bg-slate-200 bg-amber-50">Selisih Alokasi</th>
+                    <th onClick={() => handleHistSort('real1')} className="py-2.5 px-3 text-right cursor-pointer hover:bg-slate-200">Realisasi ({m1})</th>
+                    <th onClick={() => handleHistSort('real2')} className="py-2.5 px-3 text-right cursor-pointer hover:bg-slate-200">Realisasi ({m2})</th>
+                    <th onClick={() => handleHistSort('diffReal')} className="py-2.5 px-3 text-right cursor-pointer hover:bg-slate-200 bg-orange-50">Selisih Realisasi</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {varianceData.length === 0 ? (
+                  {filteredDetails.length === 0 ? (
                     <tr>
-                      <td colSpan="9" className="py-8 text-center text-slate-400">
-                        Tidak ada data rincian proyek sesuai filter perbandingan.
+                      <td colSpan="11" className="py-8 text-center text-slate-400">
+                        Tidak ada data yang memenuhi kriteria komparasi.
                       </td>
                     </tr>
                   ) : (
-                    varianceData.map((row, idx) => (
-                      <tr key={idx} className="hover:bg-slate-50/80 transition-colors">
+                    filteredDetails.map((row, idx) => (
+                      <tr key={idx} className="hover:bg-slate-50 transition-colors">
                         <td className="py-2 px-2 text-center font-bold text-slate-400 text-[10px]">{idx + 1}</td>
+                        <td className="py-2 px-3">
+                          {row.isNew && (
+                            <span className="bg-emerald-100 text-emerald-800 font-extrabold text-[9px] px-2 py-0.5 rounded-full">
+                              BARU
+                            </span>
+                          )}
+                          {row.isRemoved && (
+                            <span className="bg-rose-100 text-rose-800 font-extrabold text-[9px] px-2 py-0.5 rounded-full">
+                              BERKURANG
+                            </span>
+                          )}
+                          {row.isExisting && (
+                            <span className="bg-slate-100 text-slate-600 font-bold text-[9px] px-2 py-0.5 rounded-full">
+                              EKSISTING
+                            </span>
+                          )}
+                        </td>
                         <td className="py-2 px-3 max-w-[220px]">
-                          <div className="flex flex-col space-y-0.5">
-                            {row.projectNumber && (
-                              <span className="text-[9px] font-extrabold text-bni-teal bg-teal-50 px-1 py-0.2 rounded border border-teal-200/50 w-max">
-                                {row.projectNumber}
-                              </span>
-                            )}
+                          <div className="flex flex-col">
+                            <span className="text-[9px] font-extrabold text-bni-teal">{row.projectNumber}</span>
                             <span className="font-bold text-slate-800 truncate" title={row.namaProject}>{row.namaProject || '-'}</span>
                           </div>
                         </td>
-
-                        <td className="py-2 px-3 max-w-[160px]">
-                          <div className="flex flex-col space-y-0.5">
-                            <span className="text-[9px] font-black uppercase text-indigo-700 bg-indigo-50 px-1 py-0.2 rounded w-max">{row.wilayah}</span>
-                            <span className="text-slate-600 truncate text-[10px]">{row.operatingUnit}</span>
+                        <td className="py-2 px-3 font-semibold text-slate-700">{row.mataAnggaran}</td>
+                        <td className="py-2 px-3">
+                          <div className="flex flex-col text-[10px]">
+                            <span className="font-bold text-indigo-700">{row.wilayah}</span>
+                            <span className="text-slate-400 truncate">{row.operatingUnit}</span>
                           </div>
                         </td>
-
-                        <td className="py-2 px-3 text-right font-medium text-slate-700">{formatSlimIDR(row.efs1)}</td>
-                        <td className="py-2 px-3 text-right font-semibold text-blue-700">{formatSlimIDR(row.efs2)}</td>
-                        
-                        <td className="py-2 px-3 text-right font-black bg-amber-50/30">
-                          {row.diffEfs === 0 ? (
-                            <span className="text-slate-300">-</span>
-                          ) : (
-                            <span className={`px-1.5 py-0.5 rounded text-[10px] ${row.diffEfs > 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}`}>
+                        <td className="py-2 px-3 text-right font-medium text-slate-700 cursor-help" title={formatIDR(row.efs1)}>{formatSlimIDR(row.efs1)}</td>
+                        <td className="py-2 px-3 text-right font-semibold text-blue-700 cursor-help" title={formatIDR(row.efs2)}>{formatSlimIDR(row.efs2)}</td>
+                        <td className="py-2 px-3 text-right font-black bg-amber-50/40 cursor-help" title={formatIDR(row.diffEfs)}>
+                          {row.diffEfs === 0 ? '-' : (
+                            <span className={row.diffEfs > 0 ? 'text-emerald-700' : 'text-rose-700'}>
                               {row.diffEfs > 0 ? '+' : ''}{formatSlimIDR(row.diffEfs)}
                             </span>
                           )}
                         </td>
-
-                        <td className="py-2 px-3 text-right font-medium text-slate-700">{formatSlimIDR(row.real1)}</td>
-                        <td className="py-2 px-3 text-right font-semibold text-bni-orange">{formatSlimIDR(row.real2)}</td>
-
-                        <td className="py-2 px-3 text-right font-black bg-orange-50/30">
-                          {row.diffReal === 0 ? (
-                            <span className="text-slate-300">-</span>
-                          ) : (
-                            <span className={`px-1.5 py-0.5 rounded text-[10px] ${row.diffReal > 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}`}>
+                        <td className="py-2 px-3 text-right font-medium text-slate-700 cursor-help" title={formatIDR(row.real1)}>{formatSlimIDR(row.real1)}</td>
+                        <td className="py-2 px-3 text-right font-semibold text-bni-orange cursor-help" title={formatIDR(row.real2)}>{formatSlimIDR(row.real2)}</td>
+                        <td className="py-2 px-3 text-right font-black bg-orange-50/40 cursor-help" title={formatIDR(row.diffReal)}>
+                          {row.diffReal === 0 ? '-' : (
+                            <span className={row.diffReal > 0 ? 'text-emerald-700' : 'text-rose-700'}>
                               {row.diffReal > 0 ? '+' : ''}{formatSlimIDR(row.diffReal)}
                             </span>
                           )}
@@ -2406,29 +2634,58 @@ useEffect(() => {
         }).slice(0, 10);
       }, [mappedProjectsData, bottomSearchTerm]);
 
-      const tickerStats = useMemo(() => {
+const tickerStats = useMemo(() => {
         let totalAlokasiEfs = 0;
         let totalRealisasiFilter = 0;
-
         const mapWilayahPct = {};
 
-        rawData.forEach(row => {
+        // 1. Terapkan filter yang sama persis dengan HeatmapMatrix:
+        // Filter status EFS hanya "Active"
+        let filteredRows = rawData.filter(row => {
+          let stEfs = String(row.statusEfs || 'Active').trim().toLowerCase();
+          if (stEfs === 'actived') stEfs = 'active';
+          return stEfs === 'active';
+        });
+
+        // Filter Droplist Utama Grup (NSD / WILAYAH)
+        if (selectedGroup === 'NSD') {
+          filteredRows = filteredRows.filter(row => String(row.typeGroup || '').trim().toUpperCase() === 'NSD');
+        } else if (selectedGroup === 'WILAYAH') {
+          filteredRows = filteredRows.filter(row => String(row.typeGroup || '').trim().toUpperCase() === 'WILAYAH');
+        }
+
+        // 2. Akumulasi data hanya untuk kategori yang dihitung di Heatmap
+        filteredRows.forEach(row => {
+          let cat = (row.kategori || '').toLowerCase();
+          let isMatchedCat = 
+            cat.includes('bangunan') || 
+            cat.includes('tanah') || 
+            cat.includes('otomasi') || 
+            cat.includes('perabotan') || 
+            cat.includes('kendaraan');
+
+          // Lewati jika kategori tidak termasuk dalam matrix heatmap
+          if (!isMatchedCat) return;
+
           const efs = getEfsValue(row, reportMonth);
           const real = getCumulativeRealisasiValue(row, reportMonth);
 
           totalAlokasiEfs += efs;
           totalRealisasiFilter += real;
 
-          const w = row.wilayah;
-          if (w) {
-            if (!mapWilayahPct[w]) mapWilayahPct[w] = { efs: 0, real: 0 };
-            mapWilayahPct[w].efs += efs;
-            mapWilayahPct[w].real += real;
+          const w = row.wilayah || 'Lainnya';
+          if (!mapWilayahPct[w]) {
+            mapWilayahPct[w] = { efs: 0, real: 0 };
           }
+          mapWilayahPct[w].efs += efs;
+          mapWilayahPct[w].real += real;
         });
 
-        const pctRealisasiTotal = totalAlokasiEfs > 0 ? ((totalRealisasiFilter / totalAlokasiEfs) * 100).toFixed(2) : '0.00';
+        const pctRealisasiTotal = totalAlokasiEfs > 0 
+          ? ((totalRealisasiFilter / totalAlokasiEfs) * 100).toFixed(2) 
+          : '0.00';
 
+        // Hitung persentase per wilayah (persis sama dengan kolom Total Heatmap per baris)
         const listWilayahPct = Object.keys(mapWilayahPct).map(w => {
           const efs = mapWilayahPct[w].efs;
           const real = mapWilayahPct[w].real;
@@ -2443,7 +2700,7 @@ useEffect(() => {
           pctRealisasiTotal,
           listWilayahPct
         };
-      }, [rawData, reportMonth]);
+      }, [rawData, reportMonth, selectedGroup]);
 
       const categorySummaryBoxes = useMemo(() => {
         const targetCats = ["Bangunan Gedung", "Tanah", "Perabotan Otomasi", "Perabotan Non Otomasi", "Kendaraan"];
@@ -3080,8 +3337,13 @@ useEffect(() => {
                 />
               )}
 
-              {activeTab === 'historical' && (
-                <HistoricalAnalysisView data={rawData} />
+{activeTab === 'historical' && (
+                <HistoricalAnalysisView 
+                  data={rawData} 
+                  selectedGroup={selectedGroup}
+                  selectedWilayah={selectedWilayah}
+                  selectedUnit={selectedUnit}
+                />
               )}
 
               {activeTab !== 'historical' && activeTab !== 'upload' && activeTab !== 'prognosa' && (
