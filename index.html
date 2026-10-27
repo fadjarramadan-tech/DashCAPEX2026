@@ -160,7 +160,7 @@
       );
     };
 
-const MonthlyTrendlineChart = ({ data, reportMonth }) => {
+const MonthlyTrendlineChart = ({ data, reportMonth, selectedGroup, selectedWilayah }) => {
       const canvasRef = useRef(null);
       const chartRef = useRef(null);
 
@@ -170,23 +170,88 @@ const MonthlyTrendlineChart = ({ data, reportMonth }) => {
 
       const monthlyTrendData = useMemo(() => {
         const alokasiArr = activeMonths.map(m => {
-          let sum = 0;
-          data.forEach(row => {
-            sum += getEfsValue(row, m);
+          // 1. Filter status EFS dan kategori yang dinamis berdasarkan bulan iterasi (m)
+          let filteredRows = data.filter(row => {
+            const mKey = m.toLowerCase();
+            let stEfs = (row.statusEfsMonthly && row.statusEfsMonthly[mKey]) 
+              ? row.statusEfsMonthly[mKey] 
+              : (row.statusEfs || 'Active');
+            
+            stEfs = String(stEfs).trim().toLowerCase();
+            if (stEfs === 'actived') stEfs = 'active';
+            return stEfs === 'active';
           });
-          return sum;
+
+          if (selectedGroup === 'NSD') {
+            filteredRows = filteredRows.filter(row => String(row.typeGroup || '').trim().toUpperCase() === 'NSD');
+          } else if (selectedGroup === 'WILAYAH') {
+            filteredRows = filteredRows.filter(row => String(row.typeGroup || '').trim().toUpperCase() === 'WILAYAH');
+          }
+
+          if (selectedWilayah && selectedWilayah !== 'ALL') {
+            filteredRows = filteredRows.filter(row => row.wilayah === selectedWilayah);
+          }
+
+          filteredRows = filteredRows.filter(row => {
+            let cat = (row.kategori || '').toLowerCase();
+            return (
+              cat.includes('bangunan') || 
+              cat.includes('tanah') || 
+              cat.includes('otomasi') || 
+              cat.includes('perabotan') || 
+              cat.includes('kendaraan')
+            );
+          });
+
+          let sumAlokasi = 0;
+          filteredRows.forEach(row => {
+            sumAlokasi += getEfsValue(row, m);
+          });
+          return sumAlokasi;
         });
 
         const realisasiArr = activeMonths.map(m => {
-          let sum = 0;
-          data.forEach(row => {
-            sum += getCumulativeRealisasiValue(row, m);
+          let filteredRows = data.filter(row => {
+            const mKey = m.toLowerCase();
+            let stEfs = (row.statusEfsMonthly && row.statusEfsMonthly[mKey]) 
+              ? row.statusEfsMonthly[mKey] 
+              : (row.statusEfs || 'Active');
+            
+            stEfs = String(stEfs).trim().toLowerCase();
+            if (stEfs === 'actived') stEfs = 'active';
+            return stEfs === 'active';
           });
-          return sum;
+
+          if (selectedGroup === 'NSD') {
+            filteredRows = filteredRows.filter(row => String(row.typeGroup || '').trim().toUpperCase() === 'NSD');
+          } else if (selectedGroup === 'WILAYAH') {
+            filteredRows = filteredRows.filter(row => String(row.typeGroup || '').trim().toUpperCase() === 'WILAYAH');
+          }
+
+          if (selectedWilayah && selectedWilayah !== 'ALL') {
+            filteredRows = filteredRows.filter(row => row.wilayah === selectedWilayah);
+          }
+
+          filteredRows = filteredRows.filter(row => {
+            let cat = (row.kategori || '').toLowerCase();
+            return (
+              cat.includes('bangunan') || 
+              cat.includes('tanah') || 
+              cat.includes('otomasi') || 
+              cat.includes('perabotan') || 
+              cat.includes('kendaraan')
+            );
+          });
+
+          let sumRealisasi = 0;
+          filteredRows.forEach(row => {
+            sumRealisasi += getCumulativeRealisasiValue(row, m);
+          });
+          return sumRealisasi;
         });
 
         return { alokasiArr, realisasiArr };
-      }, [data, activeMonths]);
+      }, [data, activeMonths, selectedGroup, selectedWilayah]);
 
       useEffect(() => {
         if (!canvasRef.current) return;
@@ -255,10 +320,10 @@ const MonthlyTrendlineChart = ({ data, reportMonth }) => {
               <i data-lucide="trending-up" className="w-4 h-4 text-bni-teal"></i>
               <span>Trendline Alokasi vs Realisasi per Bulan (Jan - {reportMonth} 2026)</span>
             </h4>
-            <span className="text-[10px] font-bold text-bni-teal bg-bni-teal-subtle px-2 py-0.5 rounded-full">YTD Trend</span>
+            <span className="text-[10px] font-bold text-bni-teal bg-bni-teal-subtle px-2 py-0.5 rounded-full">YTD Cumulative Trend</span>
           </div>
           <div className="h-64 w-full relative">
-            <canvas ref={canvasRef}></canvas>
+            <canvas ref= {canvasRef}></canvas>
           </div>
         </div>
       );
@@ -2635,57 +2700,59 @@ useEffect(() => {
       }, [mappedProjectsData, bottomSearchTerm]);
 
 const tickerStats = useMemo(() => {
-        let totalAlokasiEfs = 0;
-        let totalRealisasiFilter = 0;
-        const mapWilayahPct = {};
-
-        // 1. Terapkan filter yang sama persis dengan HeatmapMatrix:
-        // Filter status EFS hanya "Active"
+        // Filter baris yang 100% identik dengan HeatmapMatrix
         let filteredRows = rawData.filter(row => {
           let stEfs = String(row.statusEfs || 'Active').trim().toLowerCase();
           if (stEfs === 'actived') stEfs = 'active';
           return stEfs === 'active';
         });
 
-        // Filter Droplist Utama Grup (NSD / WILAYAH)
         if (selectedGroup === 'NSD') {
           filteredRows = filteredRows.filter(row => String(row.typeGroup || '').trim().toUpperCase() === 'NSD');
         } else if (selectedGroup === 'WILAYAH') {
           filteredRows = filteredRows.filter(row => String(row.typeGroup || '').trim().toUpperCase() === 'WILAYAH');
         }
 
-        // 2. Akumulasi data hanya untuk kategori yang dihitung di Heatmap
+        if (selectedWilayah && selectedWilayah !== 'ALL') {
+          filteredRows = filteredRows.filter(row => row.wilayah === selectedWilayah);
+        }
+
+        let totalAlokasiEfs = 0;
+        let totalRealisasiFilter = 0;
+        const mapWilayahPct = {};
+
         filteredRows.forEach(row => {
-          let cat = (row.kategori || '').toLowerCase();
-          let isMatchedCat = 
-            cat.includes('bangunan') || 
-            cat.includes('tanah') || 
-            cat.includes('otomasi') || 
-            cat.includes('perabotan') || 
-            cat.includes('kendaraan');
+          let cat = row.kategori || '';
+          let matchedCat = null;
 
-          // Lewati jika kategori tidak termasuk dalam matrix heatmap
-          if (!isMatchedCat) return;
+          // Klasifikasi kategori yang sama persis dengan HeatmapMatrix
+          if (cat.toLowerCase().includes('bangunan')) matchedCat = "Bangunan Gedung";
+          else if (cat.toLowerCase().includes('tanah')) matchedCat = "Tanah";
+          else if (cat.toLowerCase().includes('otomasi') && !cat.toLowerCase().includes('non')) matchedCat = "Perabotan Otomasi";
+          else if (cat.toLowerCase().includes('perabotan') || cat.toLowerCase().includes('non otomasi')) matchedCat = "Perabotan Non Otomasi";
+          else if (cat.toLowerCase().includes('kendaraan')) matchedCat = "Kendaraan";
 
-          const efs = getEfsValue(row, reportMonth);
-          const real = getCumulativeRealisasiValue(row, reportMonth);
+          if (matchedCat) {
+            const efs = getEfsValue(row, reportMonth);
+            const real = getCumulativeRealisasiValue(row, reportMonth);
 
-          totalAlokasiEfs += efs;
-          totalRealisasiFilter += real;
+            totalAlokasiEfs += efs;
+            totalRealisasiFilter += real;
 
-          const w = row.wilayah || 'Lainnya';
-          if (!mapWilayahPct[w]) {
-            mapWilayahPct[w] = { efs: 0, real: 0 };
+            const w = (selectedWilayah && selectedWilayah !== 'ALL') ? (row.operatingUnit || 'Lainnya') : (row.wilayah || 'Lainnya');
+            if (!mapWilayahPct[w]) {
+              mapWilayahPct[w] = { efs: 0, real: 0 };
+            }
+            mapWilayahPct[w].efs += efs;
+            mapWilayahPct[w].real += real;
           }
-          mapWilayahPct[w].efs += efs;
-          mapWilayahPct[w].real += real;
         });
 
         const pctRealisasiTotal = totalAlokasiEfs > 0 
           ? ((totalRealisasiFilter / totalAlokasiEfs) * 100).toFixed(2) 
           : '0.00';
 
-        // Hitung persentase per wilayah (persis sama dengan kolom Total Heatmap per baris)
+        // Urutkan wilayah berdasarkan % penyerapan tertinggi ke terendah (descending)
         const listWilayahPct = Object.keys(mapWilayahPct).map(w => {
           const efs = mapWilayahPct[w].efs;
           const real = mapWilayahPct[w].real;
@@ -2700,7 +2767,7 @@ const tickerStats = useMemo(() => {
           pctRealisasiTotal,
           listWilayahPct
         };
-      }, [rawData, reportMonth, selectedGroup]);
+      }, [rawData, reportMonth, selectedGroup, selectedWilayah]);
 
       const categorySummaryBoxes = useMemo(() => {
         const targetCats = ["Bangunan Gedung", "Tanah", "Perabotan Otomasi", "Perabotan Non Otomasi", "Kendaraan"];
@@ -3496,9 +3563,11 @@ const tickerStats = useMemo(() => {
                   </div>
 
                   <MonthlyTrendlineChart 
-                    data={filteredData} 
-                    reportMonth={reportMonth} 
-                  />
+					  data={rawData} 
+					  reportMonth={reportMonth} 
+					  selectedGroup={selectedGroup}
+					  selectedWilayah={selectedWilayah}
+					/>
 
                   <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                     <div className="lg:col-span-2 bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm flex flex-col justify-between">
